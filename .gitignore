@@ -1,0 +1,33 @@
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+.cxx/
+
+# Model weights are never committed — they are downloaded and verified
+# against a digest, or staged on disk before the event.
+models/
+*.pt
+*.onnx
+*.tflite
+*.bin
+*.safetensors
+*.dlc
+*.qnn
+
+# Local
+.env
+.env.local
+logs/
+*.log
+.DS_Store
+.idea/
+*.iml

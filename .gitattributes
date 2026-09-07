@@ -1,0 +1,10 @@
+# Shell scripts must keep LF endings. On a Windows checkout with
+# core.autocrlf=true, a CRLF checkout breaks the shebang outright:
+# bash reports "/usr/bin/env bash^M: bad interpreter".
+*.sh text eol=lf
+gradlew text eol=lf
+
+# Windows-side scripts stay CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
