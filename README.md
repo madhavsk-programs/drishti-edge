@@ -1,189 +1,156 @@
 # DRISHTI Edge
 
-**A walking assistant for blind and low-vision users — being moved onto the phone.**
+Assistive walking guidance for blind and low-vision users, being ported from a
+laptop GPU onto a Snapdragon Hexagon NPU.
 
-The camera watches the path ahead. The user hears what matters: an obstacle
-closing in, a wall or stairs ahead, which way the floor is actually open. Haptics
-carry the urgent cues when speech is too slow.
+The camera reads the space ahead — corridors, doorways, stairs, walkable floor.
+The user hears what matters: an obstacle closing in, a wall or level change
+ahead, which way the floor is open. Haptics carry the urgent cues.
 
 ---
 
-## Read this first — what this repository is
+## Contents
 
-This repository holds the two surfaces that carry into the iQOO Hackathon Chennai
-build, plus the specification for the part being rebuilt there.
+| Path | What |
+|---|---|
+| `apps/android/` | Kotlin + Jetpack Compose client |
+| `apps/dashboard/` | React + Vite coordinator dashboard |
+| `packages/contracts/` | Frozen TypeScript API contracts |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | On-device rebuild specification (1,269 lines) |
+| [`docs/SAFETY_RULES.md`](docs/SAFETY_RULES.md) | Safety contract |
+| [`docs/DEVICE_BUDGET.md`](docs/DEVICE_BUDGET.md) | 12 GB memory budget |
 
-**It is not a submission of finished hackathon work, and nothing here is claimed
-as event-window code.** It is prior work, published openly so that what we bring
-to the event and what we build at the event are separable by anyone who looks.
+**The perception and guidance pipeline is not in this repository.** It currently
+runs as a CUDA service in the parent project
+([SparkleYR/DRISHTI](https://github.com/SparkleYR/DRISHTI)) and is being rebuilt
+on-device. `ARCHITECTURE.md` is the specification for that rebuild; the
+implementation will live in its own repository.
 
-| What | Where | Status |
+Everything committed here predates that rebuild.
+
+---
+
+## Architecture
+
+Current, and the reason for the port:
+
+```
+phone: capture, JPEG encode, POST          ← requires the laptop on the same Wi-Fi
+   │
+   │  every frame over the LAN
+   ▼
+laptop: decode, detect, segment, track, reason, score, guide
+   │
+   │  JSON response
+   ▼
+phone: speak, vibrate, draw overlay
+```
+
+Target:
+
+```
+phone: capture → NPU detection + segmentation → risk → guidance → speech, haptics
+laptop: coordinator dashboard only, optional, fire-and-forget
+```
+
+### Model port
+
+| Stage | Current (laptop CUDA) | Target (Hexagon NPU) |
 |---|---|---|
-| Coordinator dashboard (React) | `apps/dashboard/` | **Prior work.** Built before the event. |
-| Android client (Kotlin, Compose) | `apps/android/` | **Prior work.** Built before the event. |
-| Typed API contracts | `packages/contracts/` | **Prior work.** Frozen spec. |
-| On-device rebuild architecture | [`ARCHITECTURE.md`](ARCHITECTURE.md) | **Prior work.** A plan, not an implementation. |
-| The on-device perception pipeline | *(not here)* | **To be written at the event.** |
+| Detection | YOLO11n | YOLOv8-det / YOLOX |
+| Surface segmentation | SegFormer-B0 ADE20K | AI Hub segmentation |
+| OCR | Tesseract 5 (CPU) | PaddleOCR / on-device OCR |
+| Scene VLM | Moondream2 | Qwen3-VL-2B-Instruct |
+| Risk + guidance | Python | Kotlin, on-device |
 
-The perception and guidance stack is deliberately **absent** from this repository.
-That is the work being done in the 30-hour window, and it will live in its own
-repository with commit history inside the event window.
-
----
-
-## The problem we are bringing to Chennai
-
-DRISHTI works. Over ten phases we built and proved the full pipeline: object
-detection, semantic segmentation of walkable surface, session-scoped tracking,
-corridor geometry, a risk and guidance engine, OCR for signs, and a
-vision-language model for scene questions — driving a native Kotlin client with
-speech, haptics and spatial audio.
-
-It has exactly one thing wrong with it.
-
-**All of that runs on a laptop GPU, and the phone must stay within Wi-Fi range of
-it.** Every frame is JPEG-encoded, sent over the LAN to an RTX 4060, and the
-guidance comes back over the same link.
-
-For someone actually walking outside, that is useless. You cannot carry a gaming
-laptop. You cannot wait on a network round-trip to be told to stop. And you should
-not be streaming a live camera feed of everything you see to anything at all.
-
-```
-TODAY                                   TARGET
------                                   ------
-phone: capture, encode, POST            phone: capture, infer, reason, speak
-  |                                       |
-  | JPEG over Wi-Fi, every frame          | (nothing)
-  v                                       |
-laptop: detect, segment, track,           v
-        reason, score, guide            laptop: dashboard only, optional
-  |
-  | JSON back over Wi-Fi
-  v
-phone: speak, vibrate, draw
-```
-
-At Chennai we delete the left-hand column. Every model moves onto the iQOO 15's
-Hexagon NPU. The demo is the proof: **we close the laptop mid-walk and the
-guidance keeps coming.**
+Every stage has a fallback ladder in
+[`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-model-selection-and-fallback-ladders).
+Memory is budgeted for the **12 GB** device variant; nothing on the critical path
+assumes 16 GB.
 
 ---
 
-## The port
+## Safety contract
 
-Every model DRISHTI runs today has a counterpart Qualcomm lists for Snapdragon 8
-Elite Gen 5. We are not inventing a pipeline — we are re-hosting a proven one.
+DRISHTI is an assistive prototype. It does not replace a white cane, a guide dog,
+mobility training, or human judgement.
 
-| Job | Runs today (laptop CUDA) | Chennai target (Hexagon NPU) |
-|---|---|---|
-| Obstacle detection | YOLO11n | YOLOv8-det / YOLOX |
-| Walkable surface | SegFormer-B0 ADE20K | AI Hub segmentation |
-| Sign reading | Tesseract 5 (CPU) | PaddleOCR / on-device OCR |
-| Scene questions | Moondream2 | Qwen3-VL-2B-Instruct |
-| Risk + guidance | Python backend | Kotlin, on-device |
+- Never states or implies that a road or crossing is safe.
+- Never states distance in absolute units. Relative bands only: `FAR`, `MEDIUM`,
+  `NEAR`, `IMMEDIATE`, `UNKNOWN`.
+- Emits `PAUSE_UNCLEAR` when evidence is weak or contradictory, rather than
+  inventing a direction.
+- Every state carries a word, an icon shape, and a haptic pattern. Colour is
+  never the only signal.
+- No frame storage, no facial recognition, no identity tracking, no route
+  history. Evidence images leave the device only after an explicit per-report
+  consent gesture.
 
-Planned for the **12 GB** iQOO 15 variant. Nothing on the critical path assumes
-16 GB. See [`ARCHITECTURE.md` §4](ARCHITECTURE.md#4-device-budget--12-gb-iqoo-15)
-for the memory budget and [§6](ARCHITECTURE.md#6-model-selection-and-fallback-ladders)
-for the fallback ladder behind every row above.
-
----
-
-## Safety rules we do not break
-
-DRISHTI is an **assistive prototype**. It does not replace a white cane, a guide
-dog, mobility training, or human judgement.
-
-- It never says a road or crossing is safe. It reports what it detects; it never
-  certifies.
-- It never states distance in metres. A single camera cannot measure it. Only
-  relative bands: `FAR`, `MEDIUM`, `NEAR`, `IMMEDIATE`, `UNKNOWN`.
-- When evidence is weak or contradictory it says so — `PAUSE_UNCLEAR` — instead of
-  inventing a direction. **For a blind user, a confident wrong answer is the most
-  dangerous possible output.**
-- Colour is never the only signal. Every state also carries a word, an icon shape,
-  and a haptic pattern.
-- No frame storage, no facial recognition, no identity tracking, no route history.
-  Evidence images leave the device only after an explicit per-report consent
-  gesture.
-
-The full set is [`ARCHITECTURE.md` §3](ARCHITECTURE.md#3-the-non-negotiable-safety-contract).
+Full contract: [`docs/SAFETY_RULES.md`](docs/SAFETY_RULES.md).
 
 ---
 
-## What is in here
+## Build
 
-```
-apps/
-  android/        Kotlin + Jetpack Compose client
-                  CameraX capture, capture-to-preview transform, stale-frame
-                  rejection, tri-lingual TTS, haptics, spatial audio, gesture
-                  input, screen-off foreground service
-  dashboard/      React + Vite coordinator dashboard
-                  system readiness, live walkers, route monitor, hazard queue
-packages/
-  contracts/      Frozen TypeScript API contracts — the shapes the rebuilt
-                  pipeline must produce
-docs/
-  SAFETY_RULES.md         The safety contract, standalone
-  DEVICE_BUDGET.md        12 GB memory arithmetic
-ARCHITECTURE.md           1,200-line on-device rebuild specification
-```
-
-### Running the dashboard
+### Dashboard
 
 ```bash
 npm install
 npm run dev --workspace apps/dashboard
 ```
 
-It expects a backend on `http://127.0.0.1:8000`. Without one it reports the
-system as unreachable, which is the correct behaviour rather than fabricated data.
-
-### Building the Android client
-
-Open `apps/android/` in Android Studio, or:
+Serves on `http://127.0.0.1:5173`. Expects a backend on `http://127.0.0.1:8000`;
+without one it reports the system unreachable rather than fabricating data.
 
 ```bash
-cd apps/android && ./gradlew installDebug
+npm run build       # production bundle
+npm test            # vitest
+npm run typecheck
 ```
 
-Set the backend address in the app's settings screen. **Note:** this client
-currently expects the laptop backend. Removing that dependency is the event work.
+### Android client
+
+```bash
+cd apps/android
+./gradlew installDebug
+```
+
+minSdk 31, target/compile 36. Kotlin 2.3, AGP 9, Gradle 9.1.
+
+Backend address is set in the app's settings screen and persisted. The default is
+in `apps/android/app/src/main/java/com/drishti/app/settings/SettingsStore.kt`.
+
+> This client currently requires the laptop backend. Removing that dependency is
+> the work specified in `ARCHITECTURE.md`.
 
 ---
 
-## Prior work and disclosure
+## Contracts
 
-Built by the team over ten phases before this hackathon:
+`packages/contracts/` is the frozen wire format. The rebuilt pipeline must
+produce these shapes; the dashboard and the Android client are written against
+them.
 
-- **80 numbered design decisions** with rationale, in the parent project's
-  `DECISIONS.md`
-- A frozen, typed `/api/v1` contract
-- Real-model integration tests running with outbound HTTP denied
-- Phase-gated acceptance criteria, including controlled physical hall testing
+```typescript
+type RiskLevel     = "CLEAR" | "WATCH" | "WARN" | "HIGH" | "CRITICAL";
+type ProximityBand = "FAR" | "MEDIUM" | "NEAR" | "IMMEDIATE" | "UNKNOWN";
+type SurfaceKind   = "WALKABLE" | "ROAD" | "NON_WALKABLE" | "UNKNOWN";
 
-The parent project — including the FastAPI backend, the CUDA perception pipeline,
-SQLite persistence, and the accessibility scoring engine — is at
-[SparkleYR/DRISHTI](https://github.com/SparkleYR/DRISHTI).
+interface GuidanceContract {
+  level: RiskLevel;
+  action: "CLEAR" | "CAUTION" | "MOVE_LEFT" | "MOVE_RIGHT" | "STOP" | "PAUSE_UNCLEAR";
+  speech: string;
+  haptic_pattern: "NONE" | "CAUTION_SHORT" | "WARNING_DOUBLE" | "CRITICAL_RAPID" | "UNCLEAR_LONG";
+  speak: boolean;
+  reason_code: string;
+}
+```
 
-We are stating this plainly because the hackathon rules require original work
-written inside the event window, with pre-existing components disclosed. The
-perception rebuild is that original work. Everything in this repository predates
-the event and is labelled as such.
-
----
-
-## Team
-
-| | |
-|---|---|
-| **Madhav Khurana** | LLM systems, ML pipelines. [github.com/madhavsk-programs](https://github.com/madhavsk-programs) |
-| **Yash Raj** | Android / Kotlin. [github.com/SparkleYR](https://github.com/SparkleYR) |
+One change the port requires: `ComputeDevice` becomes
+`"NPU" | "GPU" | "CPU" | "NONE"`. Everything else is frozen.
 
 ---
 
-*DRISHTI is an assistive prototype. It is not a medical device, not a mobility
-aid replacement, and not a safety certification. It never claims a crossing is
-safe.*
+## Licence
+
+Not yet licensed. All rights reserved pending a decision.

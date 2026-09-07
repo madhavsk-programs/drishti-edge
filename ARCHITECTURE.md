@@ -82,8 +82,8 @@ any point in that loop.
 
 ### 2.1 Carried over unchanged
 
-These are in this repository and are **prior work, openly disclosed**. They are
-not written during the event window and must not be presented as if they were.
+These are in this repository and predate the rebuild. They are consumed by the
+new pipeline, not rewritten by it.
 
 | Component | Path | Why it carries over |
 |---|---|---|
@@ -348,7 +348,7 @@ costs real capability that the demo depends on.
 | 2 | **YOLOX** (AI Hub) | Equivalent role, different operator coverage. Try if YOLOv8 fails conversion. |
 | 3 | YOLOv5 (AI Hub) | Older, broadest operator support. Last NPU option. |
 | 4 | Any of the above on GPU | Slower, hotter, still acceptable. |
-| 5 | CPU | **Demo-only fallback.** Announce it as degraded. Not the pitch. |
+| 5 | CPU | **Demo-only fallback.** Announce it as degraded. |
 
 **Output required:** boxes in normalized coordinates, class label, confidence.
 The 19-class risk set (Appendix B) is a *filter applied after inference*, not a
@@ -887,7 +887,7 @@ HTTP response. The interface should be identical.
 
 A 30-hour hackathon demo happens at the end, on a phone that has been running
 inference all weekend, in a crowded warm room. Cold benchmarks are irrelevant.
-Sustained thermal behaviour is what the judges will actually see.
+Sustained thermal behaviour is what a live demonstration actually exercises.
 
 ### 16.2 Monitoring
 
@@ -961,7 +961,7 @@ Two things, both optional, neither in the safety path:
 
 1. **Hazard reports** — the walker reports an obstacle; the report reaches the
    coordinator dashboard on the laptop.
-2. **Demo mirroring** — screen-mirror the phone for the pitch, so an audience can
+2. **Demo mirroring** — screen-mirror the phone for a live demonstration, so an audience can
    see the overlay and the diagnostics panel.
 
 ### 18.2 The rule that defines it
@@ -982,13 +982,13 @@ harder than starting with it.
   error mid-walk.
 - Evidence JPEGs only after the explicit consent gesture (§3.3).
 
-### 18.4 Scoring note
+### 18.4 What the bridge is not
 
-Office Kit usage is 10% of the score and is measured by HackTracker from device
-data. Genuine use — hazard reports flowing during the walk, the dashboard live on
-the laptop, mirroring for the pitch — is both honest and sufficient. Do not
-contrive extra usage; do make sure the real usage actually happens during scored
-windows rather than only in rehearsal.
+It is not a fallback path for guidance. If the on-device pipeline degrades, the
+response is §19's ladder, not a request to the laptop. Reintroducing a network
+dependency under failure conditions would restore precisely the coupling this
+rebuild exists to remove — and it would do so at the moment the user is least
+able to tolerate it.
 
 ---
 
@@ -1071,7 +1071,7 @@ Chennai: clock starts Saturday 10:00, active hacking from 11:00, awards Sunday
 > **Airplane mode. Walk a real corridor. Guidance continues, correctly, for ten
 > minutes.**
 
-If this passes, the pitch is true. If it does not, nothing else compensates.
+If this passes, the architecture holds. If it does not, nothing else compensates.
 Run it at GATE 3 and again after the freeze.
 
 ### 21.2 Functional checks
@@ -1122,7 +1122,7 @@ Work top to bottom. Each answer changes what is worth attempting below it.
 | 7 | Does NexaSDK initialise on 12 GB? | No → §6.3 rung 2/3, §6.4 rung 2. |
 | 8 | Is AI Hub / GenieX reachable during the event? | No → pre-download every candidate model beforehand. |
 | 9 | Can NPU telemetry be shown to judges? | No → the diagnostics panel becomes the only evidence. |
-| 10 | Does HackTracker distinguish NPU from CPU inference? | Unknown → assume not; make the case in the pitch. |
+| 10 | Does HackTracker distinguish NPU from CPU inference? | Unknown → assume not; rely on the diagnostics panel as evidence. |
 
 > **Item 6 deserves emphasis: pre-stage every candidate model on the laptop
 > before travelling to Chennai.** Downloading multi-gigabyte model files over
@@ -1253,17 +1253,13 @@ debugging. Not spoken verbatim.
 
 ---
 
-## Closing note
+## Note on scope
 
-Everything in this document exists because the parent project already learned it
-the hard way over ten phases. The models are the easy part — they have listed,
-supported counterparts on Qualcomm's catalogue and they will port.
+The models are the tractable part of this port: each has a listed, supported
+counterpart in Qualcomm's catalogue and a documented conversion path.
 
-The hard part is the behaviour: knowing when to say *I don't know*, refusing to
-turn uncertainty into a confident direction, and admitting degradation out loud.
-That behaviour is what makes this usable by someone who cannot check the phone's
-work, and it is not something anyone gets right in 30 hours from a standing
-start.
-
-We are not starting from standing. That is the whole advantage — and this
-document is how it gets carried across intact.
+The behaviour is the hard part — knowing when to report uncertainty, refusing to
+convert weak evidence into a confident direction, and announcing degradation
+audibly. Those behaviours are what make the system usable by someone who cannot
+verify its output, and they are specified here rather than left to be
+rediscovered under time pressure.
