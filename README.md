@@ -1,11 +1,13 @@
 # DRISHTI Edge
 
-Assistive walking guidance for blind and low-vision users, being ported from a
-laptop GPU onto a Snapdragon Hexagon NPU.
+On-device walking guidance for blind and low-vision users.
 
-The camera reads the space ahead — corridors, doorways, stairs, walkable floor.
-The user hears what matters: an obstacle closing in, a wall or level change
-ahead, which way the floor is open. Haptics carry the urgent cues.
+The camera reads the ground ahead. The user hears what matters — an obstacle
+closing in, a level change or a wall ahead, which side the ground is open.
+Haptics carry the urgent cues when speech is too slow.
+
+Everything runs on the phone. No cloud, no server, no network call in the
+guidance loop.
 
 ---
 
@@ -16,57 +18,66 @@ ahead, which way the floor is open. Haptics carry the urgent cues.
 | `apps/android/` | Kotlin + Jetpack Compose client |
 | `apps/dashboard/` | React + Vite coordinator dashboard |
 | `packages/contracts/` | Frozen TypeScript API contracts |
-| [`ARCHITECTURE.md`](ARCHITECTURE.md) | On-device rebuild specification (1,269 lines) |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Perception and guidance pipeline specification |
 | [`docs/SAFETY_RULES.md`](docs/SAFETY_RULES.md) | Safety contract |
 | [`docs/DEVICE_BUDGET.md`](docs/DEVICE_BUDGET.md) | 12 GB memory budget |
 
-**The perception and guidance pipeline is not in this repository.** It currently
-runs as a CUDA service in the parent project
-([SparkleYR/DRISHTI](https://github.com/SparkleYR/DRISHTI)) and is being rebuilt
-on-device. `ARCHITECTURE.md` is the specification for that rebuild; the
-implementation will live in its own repository.
+The perception and guidance pipeline is specified in
+[`ARCHITECTURE.md`](ARCHITECTURE.md) and implemented separately.
 
-Everything committed here predates that rebuild.
+---
+
+## Capabilities
+
+**Walk** — continuous guidance from the camera. Detection and segmentation run
+on every frame; tracking, corridor geometry and a risk engine resolve each frame
+into one of six guidance actions, delivered as speech, haptics and spatial audio.
+
+**Ask** — a spoken question about the scene ahead, answered by an on-device
+vision-language model.
+
+**Read** — on-demand OCR for signs, boards and route numbers.
+
+**Find** — session-scoped landmark memory. The user asks for something DRISHTI
+has seen during the walk and is guided to it with clock-face directions. Nothing
+is retained after the session ends.
 
 ---
 
 ## Architecture
 
-Current, and the reason for the port:
-
 ```
-phone: capture, JPEG encode, POST          ← requires the laptop on the same Wi-Fi
+camera
    │
-   │  every frame over the LAN
-   ▼
-laptop: decode, detect, segment, track, reason, score, guide
+   ├── detection (NPU) ── every frame
+   ├── segmentation (NPU) ── every Nth frame
    │
-   │  JSON response
    ▼
-phone: speak, vibrate, draw overlay
+tracking · corridor geometry · spatial reasoning
+   │
+   ▼
+risk engine
+   │
+   ▼
+guidance state machine
+   │
+   ▼
+speech · haptics · spatial audio · overlay
 ```
 
-Target:
+Resident models run continuously. On-demand models load, run once, and unload
+before returning, so no two are in memory at the same time.
 
-```
-phone: capture → NPU detection + segmentation → risk → guidance → speech, haptics
-laptop: coordinator dashboard only, optional, fire-and-forget
-```
-
-### Model port
-
-| Stage | Current (laptop CUDA) | Target (Hexagon NPU) |
+| Stage | Model | Residency |
 |---|---|---|
-| Detection | YOLO11n | YOLOv8-det / YOLOX |
-| Surface segmentation | SegFormer-B0 ADE20K | AI Hub segmentation |
-| OCR | Tesseract 5 (CPU) | PaddleOCR / on-device OCR |
-| Scene VLM | Moondream2 | Qwen3-VL-2B-Instruct |
-| Risk + guidance | Python | Kotlin, on-device |
+| Detection | YOLOv8-det / YOLOX | Resident |
+| Surface segmentation | AI Hub segmentation | Resident |
+| OCR | PaddleOCR / on-device OCR | On demand |
+| Scene questions | Qwen3-VL-2B-Instruct | On demand |
+| Risk + guidance | Kotlin | Always |
 
-Every stage has a fallback ladder in
-[`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-model-selection-and-fallback-ladders).
-Memory is budgeted for the **12 GB** device variant; nothing on the critical path
-assumes 16 GB.
+Memory is budgeted for the **12 GB** device variant. Every stage has a fallback
+ladder in [`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-model-selection-and-fallback-ladders).
 
 ---
 
@@ -99,8 +110,7 @@ npm install
 npm run dev --workspace apps/dashboard
 ```
 
-Serves on `http://127.0.0.1:5173`. Expects a backend on `http://127.0.0.1:8000`;
-without one it reports the system unreachable rather than fabricating data.
+Serves on `http://127.0.0.1:5173`.
 
 ```bash
 npm run build       # production bundle
@@ -117,24 +127,21 @@ cd apps/android
 
 minSdk 31, target/compile 36. Kotlin 2.3, AGP 9, Gradle 9.1.
 
-Backend address is set in the app's settings screen and persisted. The default is
-in `apps/android/app/src/main/java/com/drishti/app/settings/SettingsStore.kt`.
-
-> This client currently requires the laptop backend. Removing that dependency is
-> the work specified in `ARCHITECTURE.md`.
+The client requires the pipeline specified in
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
 ## Contracts
 
-`packages/contracts/` is the frozen wire format. The rebuilt pipeline must
-produce these shapes; the dashboard and the Android client are written against
-them.
+`packages/contracts/` is the frozen wire format. The pipeline produces these
+shapes; the dashboard and the Android client are written against them.
 
 ```typescript
 type RiskLevel     = "CLEAR" | "WATCH" | "WARN" | "HIGH" | "CRITICAL";
 type ProximityBand = "FAR" | "MEDIUM" | "NEAR" | "IMMEDIATE" | "UNKNOWN";
 type SurfaceKind   = "WALKABLE" | "ROAD" | "NON_WALKABLE" | "UNKNOWN";
+type ComputeDevice = "NPU" | "GPU" | "CPU" | "NONE";
 
 interface GuidanceContract {
   level: RiskLevel;
@@ -145,9 +152,6 @@ interface GuidanceContract {
   reason_code: string;
 }
 ```
-
-One change the port requires: `ComputeDevice` becomes
-`"NPU" | "GPU" | "CPU" | "NONE"`. Everything else is frozen.
 
 ---
 
