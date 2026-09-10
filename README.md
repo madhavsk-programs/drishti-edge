@@ -4,10 +4,11 @@ On-device walking guidance for blind and low-vision users.
 
 The camera reads the ground ahead. The user hears what matters — an obstacle
 closing in, a level change or a wall ahead, which side the ground is open.
-Haptics carry the urgent cues when speech is too slow.
 
-Everything runs on the phone. No cloud, no server, no network call in the
-guidance loop.
+The guidance loop runs entirely on the phone. No cloud, no server, and no network
+call between the camera and the user's ear. A laptop coordinator keeps the
+dashboard and the hazard database; losing it costs the dashboard and nothing
+else.
 
 ---
 
@@ -17,30 +18,29 @@ guidance loop.
 |---|---|
 | `apps/android/` | Kotlin + Jetpack Compose client |
 | `apps/dashboard/` | React + Vite coordinator dashboard |
-| `packages/contracts/` | Frozen TypeScript API contracts |
+| `packages/contracts/` | TypeScript API contracts |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Perception and guidance pipeline specification |
+| [`IQOO_PHONE_FIRST_ARCHITECTURE_REVISIONS.md`](IQOO_PHONE_FIRST_ARCHITECTURE_REVISIONS.md) | The technical revision the architecture is built on |
 | [`docs/SAFETY_RULES.md`](docs/SAFETY_RULES.md) | Safety contract |
 | [`docs/DEVICE_BUDGET.md`](docs/DEVICE_BUDGET.md) | 12 GB memory budget |
-
-The perception and guidance pipeline is specified in
-[`ARCHITECTURE.md`](ARCHITECTURE.md) and implemented separately.
 
 ---
 
 ## Capabilities
 
-**Walk** — continuous guidance from the camera. Detection and segmentation run
-on every frame; tracking, corridor geometry and a risk engine resolve each frame
-into one of six guidance actions, delivered as speech, haptics and spatial audio.
+**Walk** — continuous guidance from the camera. One detector invocation per
+frame; tracking, corridor geometry and a weighted risk engine resolve each frame
+into one of six guidance actions, delivered as speech and spatial audio.
 
-**Ask** — a spoken question about the scene ahead, answered by an on-device
-vision-language model.
+**Find** — session-scoped landmark memory. The user asks for something DRISHTI
+has seen during the walk and is guided to it. Answered from the same detector
+pass the walk loop already ran, so the common case costs no extra inference.
+Nothing is retained after the session ends.
 
 **Read** — on-demand OCR for signs, boards and route numbers.
 
-**Find** — session-scoped landmark memory. The user asks for something DRISHTI
-has seen during the walk and is guided to it with clock-face directions. Nothing
-is retained after the session ends.
+**Ask** — a spoken question about the scene ahead. On-demand only, never in the
+walking loop.
 
 ---
 
@@ -49,35 +49,49 @@ is retained after the session ends.
 ```
 camera
    │
-   ├── detection (NPU) ── every frame
-   ├── segmentation (NPU) ── every Nth frame
-   │
    ▼
-tracking · corridor geometry · spatial reasoning
+one detector invocation (NPU)
    │
-   ▼
-risk engine
+   ├── full COCO view ──────► landmark memory ──► Find
    │
-   ▼
-guidance state machine
-   │
-   ▼
-speech · haptics · spatial audio · overlay
+   └── audited 19-class view
+           │
+           ▼
+   tracking · corridor geometry · spatial reasoning   ◄── segmentation (NPU)
+           │
+           ▼
+   weighted risk engine
+           │
+           ▼
+   guidance state machine
+           │
+           ▼
+   speech · spatial audio · overlay
+           │
+           └──► bounded telemetry ──► laptop coordinator ──► dashboard
+                (optional, fire-and-forget, never in the loop)
 ```
 
-Resident models run continuously. On-demand models load, run once, and unload
-before returning, so no two are in memory at the same time.
+One inference produces two views: an audited allowlist that feeds safety, and the
+full native COCO output that feeds landmark memory. A label says an object is
+present; it does not establish that the object obstructs the walking corridor, so
+the safety path narrows deliberately while target memory stays wide.
+
+Resident models run continuously. On-demand models check free memory, load, run
+once, unload, and only then return — so no two are ever in memory together.
 
 | Stage | Model | Residency |
 |---|---|---|
-| Detection | YOLOv8-det / YOLOX | Resident |
-| Surface segmentation | AI Hub segmentation | Resident |
-| OCR | PaddleOCR / on-device OCR | On demand |
-| Scene questions | Qwen3-VL-2B-Instruct | On demand |
-| Risk + guidance | Kotlin | Always |
+| Detection | YOLO11, Hexagon NPU | Resident |
+| Surface segmentation | SegFormer-B0 ADE20K | Resident, if its gate passes |
+| Tracking, spatial, risk, guidance | Kotlin | Always |
+| OCR | On-device OCR | On demand |
+| Scene questions and target locating | Optional, gated | On demand |
 
-Memory is budgeted for the **12 GB** device variant. Every stage has a fallback
-ladder in [`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-model-selection-and-fallback-ladders).
+Memory is budgeted for the **12 GB** device variant. Every model choice has a
+gate and a fallback in
+[`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-model-selection-and-gates); a gate that
+fails removes a capability rather than downgrading it silently.
 
 ---
 
@@ -90,12 +104,15 @@ mobility training, or human judgement.
 - Never states distance in absolute units. Relative bands only: `FAR`, `MEDIUM`,
   `NEAR`, `IMMEDIATE`, `UNKNOWN`.
 - Emits `PAUSE_UNCLEAR` when evidence is weak or contradictory, rather than
-  inventing a direction.
-- Every state carries a word, an icon shape, and a haptic pattern. Colour is
-  never the only signal.
+  inventing a direction. Uncertainty and danger are different answers.
+- Never advertises a capability the deployed models cannot produce.
+- Every state carries a spoken word, an icon shape, and a distinct spatial-audio
+  character. Colour is never the only signal.
 - No frame storage, no facial recognition, no identity tracking, no route
   history. Evidence images leave the device only after an explicit per-report
   consent gesture.
+- Continuous safety never depends on the laptop, a vision-language model, or a
+  network round trip.
 
 Full contract: [`docs/SAFETY_RULES.md`](docs/SAFETY_RULES.md).
 
@@ -127,21 +144,18 @@ cd apps/android
 
 minSdk 31, target/compile 36. Kotlin 2.3, AGP 9, Gradle 9.1.
 
-The client requires the pipeline specified in
-[`ARCHITECTURE.md`](ARCHITECTURE.md).
-
 ---
 
 ## Contracts
 
-`packages/contracts/` is the frozen wire format. The pipeline produces these
-shapes; the dashboard and the Android client are written against them.
+`packages/contracts/` is the wire format. The pipeline produces these shapes; the
+dashboard and the Android client are written against them and neither is being
+rebuilt.
 
 ```typescript
 type RiskLevel     = "CLEAR" | "WATCH" | "WARN" | "HIGH" | "CRITICAL";
 type ProximityBand = "FAR" | "MEDIUM" | "NEAR" | "IMMEDIATE" | "UNKNOWN";
 type SurfaceKind   = "WALKABLE" | "ROAD" | "NON_WALKABLE" | "UNKNOWN";
-type ComputeDevice = "NPU" | "GPU" | "CPU" | "NONE";
 
 interface GuidanceContract {
   level: RiskLevel;
@@ -152,6 +166,13 @@ interface GuidanceContract {
   reason_code: string;
 }
 ```
+
+Moving execution to the phone requires amendments — an `NPU` compute device, an
+execution owner so the dashboard never reports phone inference as laptop VRAM, a
+telemetry envelope carrying no image bytes, and a nullable locator confidence.
+They are **proposals** until recorded with tests in Python, TypeScript, and
+Kotlin:
+[`ARCHITECTURE.md` Appendix A](ARCHITECTURE.md#appendix-a--contract-types-and-proposed-amendments).
 
 ---
 

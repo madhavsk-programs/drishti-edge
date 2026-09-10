@@ -19,6 +19,13 @@ someone proposes a shortcut that quietly trades against one of them.
   output is `PAUSE_UNCLEAR`, spoken as an admission of uncertainty.
 - **Never present the system as a replacement** for a white cane, a guide dog,
   mobility training, or human judgement.
+- **Never advertise a capability the deployed models cannot produce.** If
+  segmentation does not ship, the system does not claim wall or stairs semantics.
+  If `door` is unreachable from the deployed detector, it does not claim door
+  detection. A capability named in a config file is not a capability.
+- **Never fabricate a confidence value.** A locator that returns a box without a
+  calibrated probability reports `null`. Inventing `0.85` because a field expects
+  a number is the same lie as inventing a direction.
 - **Never store frames.** Ring buffer, overwritten. Nothing to disk in the walking
   path.
 - **Never perform facial recognition, identity tracking, or route-history
@@ -30,8 +37,9 @@ someone proposes a shortcut that quietly trades against one of them.
 
 - **Prefer `STOP` or `PAUSE_UNCLEAR` over a confident wrong answer.** For this
   user, a confident wrong answer is the most dangerous possible output.
-- **Carry every state in more than one channel** — a word, an icon shape, and a
-  haptic pattern. A blind user receives nothing from colour.
+- **Carry every state in more than one channel** — a spoken word, an icon shape,
+  and a distinct spatial-audio character. A blind user receives nothing from
+  colour.
 - **Let safety guidance preempt everything.** It interrupts a scene answer
   mid-sentence. It is never queued behind anything.
 - **Announce degradation out loud.** A silently degraded assistant is worse than
@@ -39,6 +47,9 @@ someone proposes a shortcut that quietly trades against one of them.
   knowing what the system can currently see.
 - **Duck the user's audio, never stop it.** Blind users very often have music or
   a podcast running.
+- **Keep continuous safety independent.** Guidance never depends on the laptop, a
+  vision-language model, Office Kit, or a network round trip. Losing the
+  coordinator costs the dashboard and nothing else.
 
 ---
 
@@ -67,5 +78,10 @@ common way to get this wrong.
 
 Mapping uncertainty onto danger makes the system cry wolf until the user stops
 listening. Mapping uncertainty onto *clear* walks them into things. Keep them
-separate, give them distinct haptic patterns, and let the user's own judgement
-fill the gap the system honestly reports.
+separate, give them distinct output, and let the user's own judgement fill the
+gap the system honestly reports.
+
+This is also why the guidance state machine emits pending states rather than
+guessing while it waits. When a direction cue is no longer trustworthy but the
+replacement has not yet held, the honest output is `PAUSE_UNCLEAR` — not the
+previous direction repeated with unearned confidence.

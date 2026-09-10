@@ -31,3 +31,6 @@ logs/
 .DS_Store
 .idea/
 *.iml
+
+# Reference copy of the previous implementation, kept locally only
+entire-old-codebase/

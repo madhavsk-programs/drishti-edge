@@ -1,26 +1,32 @@
-# DRISHTI Edge — On-Device Rebuild Architecture
+# DRISHTI Edge — Phone-First On-Device Architecture
 
 > **Status:** build specification for the iQOO Hackathon Chennai City Battle,
-> 12–13 September 2026.
+> 12–13 September 2026. Incorporates the accepted revisions in
+> [`IQOO_PHONE_FIRST_ARCHITECTURE_REVISIONS.md`](IQOO_PHONE_FIRST_ARCHITECTURE_REVISIONS.md).
 > **Target device:** iQOO 15, Snapdragon 8 Elite Gen 5, **12 GB RAM variant assumed**.
-> **Purpose:** move the entire DRISHTI perception and guidance stack off a laptop
-> GPU and onto the phone's Hexagon NPU, so a walking user is never dependent on a
-> nearby machine.
+> **Purpose:** move the perception and guidance stack off a laptop GPU and onto
+> the phone's Hexagon NPU, so a walking user is never dependent on a nearby
+> machine.
 >
-> This document exists so that the rebuild does not have to rediscover anything.
-> Every behaviour DRISHTI already gets right is written down here as a constraint,
-> and every open question is written down as a gate with a decision rule attached.
+> This is a **controlled migration, not a rewrite.** The Kotlin client and the
+> dashboard are mature and stay. The tested Python safety behaviour is ported to
+> Kotlin under golden-vector parity. The FastAPI service is narrowed to a
+> coordinator that sits outside the walking path rather than owning every frame.
+>
+> Wire-contract changes proposed here (Appendix A) are **proposals**. They take
+> effect only once recorded in `docs/DECISIONS.md` with tests in Python,
+> TypeScript, and Kotlin.
 
 ---
 
 ## Table of contents
 
 1. [How to read this document](#1-how-to-read-this-document)
-2. [What is being rebuilt and what is not](#2-what-is-being-rebuilt-and-what-is-not)
+2. [What is retained, refined, ported, narrowed, and excluded](#2-what-is-retained-refined-ported-narrowed-and-excluded)
 3. [The non-negotiable safety contract](#3-the-non-negotiable-safety-contract)
 4. [Device budget — 12 GB iQOO 15](#4-device-budget--12-gb-iqoo-15)
 5. [Memory architecture](#5-memory-architecture)
-6. [Model selection and fallback ladders](#6-model-selection-and-fallback-ladders)
+6. [Model selection and gates](#6-model-selection-and-gates)
 7. [Runtime and deployment path](#7-runtime-and-deployment-path)
 8. [Pipeline architecture](#8-pipeline-architecture)
 9. [Stage specifications](#9-stage-specifications)
@@ -28,18 +34,21 @@
 11. [Spatial reasoning port](#11-spatial-reasoning-port)
 12. [Risk engine port](#12-risk-engine-port)
 13. [Guidance state machine](#13-guidance-state-machine)
-14. [Output layer — speech, haptics, spatial audio](#14-output-layer--speech-haptics-spatial-audio)
-15. [Threading and concurrency model](#15-threading-and-concurrency-model)
-16. [Thermal and sustained performance](#16-thermal-and-sustained-performance)
-17. [On-demand modes — Explore and Scene](#17-on-demand-modes--explore-and-scene)
-18. [The Office Kit bridge](#18-the-office-kit-bridge)
-19. [Degradation ladder](#19-degradation-ladder)
-20. [The 30-hour schedule](#20-the-30-hour-schedule)
-21. [Verification plan](#21-verification-plan)
-22. [Unknowns to resolve on-site, in order](#22-unknowns-to-resolve-on-site-in-order)
-23. [Appendix A — preserved contract types](#appendix-a--preserved-contract-types)
-24. [Appendix B — the 19-class risk set](#appendix-b--the-19-class-risk-set)
-25. [Appendix C — reason codes](#appendix-c--reason-codes)
+14. [Target guidance — Ask, Lock, Guide](#14-target-guidance--ask-lock-guide)
+15. [Output layer — speech and spatial audio](#15-output-layer--speech-and-spatial-audio)
+16. [Threading and the single-accelerator scheduler](#16-threading-and-the-single-accelerator-scheduler)
+17. [Thermal and sustained performance](#17-thermal-and-sustained-performance)
+18. [On-demand modes — Explore and Scene](#18-on-demand-modes--explore-and-scene)
+19. [The laptop coordinator and the dashboard](#19-the-laptop-coordinator-and-the-dashboard)
+20. [Office Kit — development control plane](#20-office-kit--development-control-plane)
+21. [Degradation ladder](#21-degradation-ladder)
+22. [Build plan — dependency gates](#22-build-plan--dependency-gates)
+23. [Verification plan](#23-verification-plan)
+24. [Unknowns to resolve on-site, in order](#24-unknowns-to-resolve-on-site-in-order)
+25. [Appendix A — contract types and proposed amendments](#appendix-a--contract-types-and-proposed-amendments)
+26. [Appendix B — the 19-class risk set](#appendix-b--the-19-class-risk-set)
+27. [Appendix C — reason codes](#appendix-c--reason-codes)
+28. [Appendix D — the COCO label list](#appendix-d--the-coco-label-list)
 
 ---
 
@@ -52,8 +61,9 @@ When two parts of this document disagree, resolve in this order:
 1. **§3 Safety contract.** Nothing overrides it. Not performance, not the demo,
    not a judge's question.
 2. **Appendix A, the typed contract.** The data shapes are frozen. The dashboard
-   and the Android client are both already written against them.
-3. **The gates** in §20 and §22. A gate that fails changes the plan; it does not
+   and the Android client are both already written against them, and neither is
+   being rebuilt.
+3. **The gates** in §22 and §24. A gate that fails changes the plan; it does not
    get argued with.
 4. Everything else.
 
@@ -71,75 +81,115 @@ Statements in this document are one of three kinds, and they are marked:
 
 ### 1.3 The one-sentence summary
 
-The phone captures a frame, two small NPU models say *what is in front* and
-*where the floor is*, pure Kotlin logic turns that into one of eight guidance
-actions, and the user hears and feels the result — with no network involved at
-any point in that loop.
+The phone captures a frame, **one** NPU detector invocation produces two views of
+it — an audited risk view and a full-COCO target-memory view — a segmentation
+model says where the floor is if it passes its gate, pure Kotlin logic turns that
+into one of six guidance actions, and the user hears the result; the laptop keeps
+a small coordinator for the dashboard and never sits in that loop.
 
 ---
 
-## 2. What is being rebuilt and what is not
+## 2. What is retained, refined, ported, narrowed, and excluded
 
-### 2.1 Carried over unchanged
+### 2.1 Retained unchanged
 
-These are in this repository and predate the rebuild. They are consumed by the
-new pipeline, not rewritten by it.
+These predate the migration and are consumed by it, not rewritten by it.
 
 | Component | Path | Why it carries over |
 |---|---|---|
-| Coordinator dashboard | `apps/dashboard/` | Runs on the laptop, reached over Office Kit. Never in the walking path. |
-| Typed contracts | `packages/contracts/` | The data shapes the rebuilt pipeline must produce. Frozen. |
+| Coordinator dashboard | `apps/dashboard/` | Mature React client. Runs on the laptop. Never in the walking path. |
+| Typed contracts | `packages/contracts/` | The data shapes the pipeline must produce. Frozen except by the Appendix A proposals. |
 | Android UI shell | `apps/android/.../ui/` | Compose screens, overlay canvas, gesture handling. |
-| Output engines | `apps/android/.../feedback/` | Speech, haptics, spatial audio, audio focus, gyro steering. |
-| Camera plumbing | `apps/android/.../walk/` | CameraX capture, frame encoder, freshness gate. |
+| Output engines | `apps/android/.../feedback/` | Speech, spatial audio, sonar mapping, audio focus, gyro steering. |
+| Camera plumbing | `apps/android/.../walk/` | CameraX capture, capture pacing, frame freshness gate. |
 | Coordinate transform | `apps/android/.../ui/PreviewTransform.kt` | Already correct. Regressing it breaks the overlay. |
 
-### 2.2 Rebuilt during the event
+### 2.2 Refined, not rebuilt
 
-Everything below currently lives in Python on a CUDA laptop and does not exist
-on the phone at all. **This is the event-window work.**
+The Kotlin client is the product. It already has CameraX processing, frame
+freshness, capture pacing, preview transforms, gestures, speech, spatial audio,
+sonar mapping, API DTOs, and target-location seams.
+
+**The single structural change is the inference seam.** `CameraFramePipeline`
+currently encodes a frame and posts it to FastAPI. It instead calls an
+`OnDeviceDetector` interface. Everything above and below that seam is refined in
+place.
+
+> **MUST NOT** start the Android client from zero. A rewrite discards working
+> camera transforms, pacing, feedback wiring, and the existing unit tests, and
+> buys nothing that refactoring one seam does not.
+
+### 2.3 Ported from Python to Kotlin
+
+Behaviour that currently runs on a CUDA laptop and must run in-process on the
+phone. **This is the event-window work.**
 
 | Component | Currently | Becomes |
 |---|---|---|
-| Object detection | YOLO11n, PyTorch, CUDA | NPU-quantized YOLOv8-det or YOLOX |
-| Surface segmentation | SegFormer-B0 ADE20K, CUDA | NPU segmentation model |
+| Object detection | YOLO11n, PyTorch, CUDA | YOLO11 on the Hexagon NPU (§6.1) |
+| Detection canonicalization | `detector.py`, two filtered views | Kotlin, two views from one inference |
+| Surface segmentation | SegFormer-B0 ADE20K, CUDA | ADE20K semantics on NPU **only if §6.2 passes** |
 | Object tracking | Python, session-scoped | Kotlin, in-process |
 | Spatial reasoning | Python | Kotlin |
 | Risk engine | Python | Kotlin |
 | Guidance state machine | Python | Kotlin |
-| OCR | Tesseract 5, laptop CPU | On-device OCR |
-| Scene VLM | Moondream2, CUDA | Qwen3-VL-2B on NPU |
-| Transport | HTTP multipart over LAN | **Deleted. No transport.** |
+| Target guidance | Python `target_guidance.py` | Kotlin |
+| Landmark memory | Python, TTL-bounded | Kotlin, TTL-bounded |
+| OCR | Tesseract 5, laptop CPU | On-device OCR (§6.3) |
+| Walking-frame transport | HTTP multipart over LAN | **Deleted. No transport in the walking loop.** |
 
-### 2.3 Deliberately not rebuilt
+**MUST:** every ported stage is validated against golden JSON vectors exported
+from the Python implementation (§22, R0 and R3). A port that changes behaviour
+while changing platform is a port whose failures cannot be isolated.
 
-- **SQLite hazard persistence, the verify/assign/resolve workflow, accessibility
-  scoring.** These stay on the laptop behind the dashboard. They are coordinator
-  concerns, not walker concerns, and nothing in the walking path waits on them.
-- **The FastAPI service.** Deleted from the walking path entirely. The phone does
-  not call it. If a laptop is present, hazard reports are pushed to it over the
-  Office Kit bridge as a fire-and-forget side effect (§18).
+### 2.4 Narrowed, not deleted
 
-### 2.4 The architectural inversion, stated plainly
+The FastAPI service is **not** removed. The dashboard and the SQLite hazard store
+still need a local data owner. Its hackathon runtime responsibilities narrow to
+those in §19: health, telemetry ingestion, hazard CRUD and exports, the dashboard
+feed, and an optional explicit snapshot locator.
+
+It receives structured telemetry, never the walking frame stream.
+
+### 2.5 Deliberately out of scope
+
+Not build requirements for this revision. Each was cut because it costs event
+hours without strengthening the technical case.
+
+- **Haptic guidance.** `HapticEngine` and the `haptic_pattern` contract field
+  remain in the codebase — the client is unchanged — but haptic output is not on
+  the acceptance path, and no gate in §22 or test in §23 depends on it.
+- **Screen-off CameraX operation.** Walk Mode is specified for a screen-on phone.
+- **Flight-mode and public-network-disconnection demonstrations.** The
+  independence *invariant* stands (§3.3) and is verified by powering the
+  coordinator off (§23), not by a radio-off stunt.
+- **Rebuilding the dashboard.**
+- **A schedule copied from the event agenda.** §22 is dependency-gated instead.
+- **Eligibility, team-bucket, and end-user-validation planning.**
+
+Directional output for this build is **spatial audio plus concise speech**.
+
+### 2.6 The architectural inversion, stated plainly
 
 ```
 BEFORE                                  AFTER
 ------                                  -----
 phone: capture, encode, POST            phone: capture, infer, reason, speak
   |                                       |
-  | JPEG over Wi-Fi, every frame          | (nothing)
+  | JPEG over Wi-Fi, every frame          | (nothing — in-process)
   v                                       |
-laptop: decode, detect, segment,          v
-        track, reason, score,           laptop: dashboard only, optional,
-        guide                                   fire-and-forget hazard sync
-  |
-  | JSON back over Wi-Fi
-  v
-phone: speak, vibrate, draw
+laptop: decode, detect, segment,          +--> bounded structured telemetry
+        track, reason, score,                  (optional, fire-and-forget)
+        guide                                    |
+  |                                              v
+  | JSON back over Wi-Fi                 laptop: coordinator + dashboard
+  v                                              hazards, health, exports
+phone: speak, draw                               optional snapshot locator
 ```
 
-The round trip in the BEFORE column is the product's fatal flaw. Removing it is
-the entire point of the build.
+The round trip in the BEFORE column is the product's fatal flaw. Removing it from
+the *walking loop* is the point of the build. Removing the laptop *entirely* was
+never necessary, and doing so would cost a working dashboard for nothing.
 
 ---
 
@@ -159,6 +209,10 @@ blind and cannot cross-check what the phone tells them.
 - **MUST NOT** invent a direction when the evidence is weak or contradictory.
   The correct output in that case is `PAUSE_UNCLEAR`, spoken as an admission of
   uncertainty.
+- **MUST NOT** advertise a capability the deployed models cannot produce. If the
+  segmentation gate (§6.2) fails, the system does not claim wall or stairs
+  semantics. If `door` is unreachable from the deployed detector (Appendix B),
+  the system does not claim door detection.
 - **MUST NOT** present itself as a replacement for a white cane, a guide dog,
   mobility training, or human judgement. It is an assistive prototype.
 
@@ -167,32 +221,37 @@ blind and cannot cross-check what the phone tells them.
 - **MUST** prefer `STOP` or `PAUSE_UNCLEAR` over a confident wrong answer. For
   this user, a confident wrong answer is the most dangerous possible output.
 - **MUST** carry every state in more than one channel. Colour is never the only
-  signal — every state also has a word, an icon shape, and a haptic pattern.
-  A blind user receives nothing from colour at all.
+  signal — every state also has a spoken word, an icon shape, and a distinct
+  spatial-audio character. A blind user receives nothing from colour at all.
 - **MUST** let safety guidance preempt everything else. If Walk guidance and a
   target-tracking cue or a scene answer contend for the speech channel, safety
-  wins immediately and the other is dropped, not queued.
+  wins immediately and the other is dropped, not queued. Target spatial audio is
+  muted whenever the risk action is not `CLEAR`.
 - **MUST** degrade loudly. If segmentation is unavailable, the user is told the
   system is running reduced, not left to assume full capability.
 
-### 3.3 Privacy invariants
+### 3.3 Privacy and independence invariants
 
-- **MUST NOT** store frames. Frames live in a ring buffer and are overwritten.
-  Nothing is written to disk in the walking path.
+- **MUST NOT** store frames. Frames live in a small reused buffer set and are
+  overwritten. Nothing is written to disk in the walking path.
 - **MUST NOT** perform facial recognition, identity tracking, or route-history
   logging.
 - A hazard evidence JPEG leaves the device **only** after an explicit per-report
-  consent gesture, and only to the paired laptop over Office Kit.
-- **MUST NOT** make a network call of any kind during Walk Mode. This is now
-  enforceable in a way it never was before: there is no client. Assert it in
-  code and demonstrate it in airplane mode.
+  consent gesture, and only to the paired coordinator.
+- **MUST NOT** let continuous safety depend on the laptop, a VLM, Office Kit, or
+  a network round trip. Loss of the coordinator, of Wi-Fi, or of the dashboard
+  cannot stop or alter phone guidance. This is structurally enforceable in a way
+  it never was before: there is no client in the loop left to fail.
+- Telemetry is **fire-and-forget over a bounded queue that drops on overflow**.
+  Nothing in the guidance loop reads from it, waits on it, or checks whether it
+  is connected.
 
 ### 3.4 Why this section is first
 
-Every shortcut available under time pressure in a 30-hour build trades against
-one of these. Writing them at the top makes the trade visible when someone at
-hour 22 suggests "just say it's clear if we don't detect anything." That
-suggestion is a §3.1 violation and the answer is no.
+Every shortcut available under time pressure trades against one of these.
+Writing them at the top makes the trade visible when someone at hour 22 suggests
+"just say it's clear if we don't detect anything." That suggestion is a §3.1
+violation and the answer is no.
 
 ---
 
@@ -219,11 +278,12 @@ unavailable.
 > an NPU backend rather than silently falling back to CPU?
 >
 > **Decision rule:**
-> - Initialises with NPU backend → use it for OCR and the VLM.
-> - Initialises, CPU only → do not use it. CPU inference in the walk loop is a
->   thermal and latency disaster. Fall back to the Qualcomm AI Hub / QNN path.
-> - Does not initialise → AI Hub / QNN path only, and the VLM becomes a stretch
->   item rather than a Should.
+> - Initialises with NPU backend → it is a candidate for OCR and the optional VLM.
+> - Initialises, CPU only → do not use it. CPU inference anywhere near the walk
+>   loop is a thermal and latency disaster. Fall back to the Qualcomm AI Hub /
+>   QNN path.
+> - Does not initialise → AI Hub / QNN path only, and the phone VLM drops to the
+>   optional tier of §6.4 with the laptop locator as its fallback.
 
 ### 4.3 Realistic RAM accounting
 
@@ -244,21 +304,21 @@ unavailable.
 
 | Stage | Resident? | Est. runtime footprint |
 |---|---|---|
-| Detection (YOLOv8n INT8) | **Always** | 120 – 180 MB |
-| Segmentation (small, INT8) | **Always** | 150 – 250 MB |
-| Tracking, spatial, risk, guidance | Always | < 20 MB, pure Kotlin |
+| Detection (YOLO11n, quantized) | **Always** | 120 – 180 MB |
+| Segmentation (SegFormer-B0 ADE20K, quantized) | **Always, if §6.2 passes** | 150 – 250 MB |
+| Tracking, spatial, risk, guidance, target memory | Always | < 20 MB, pure Kotlin |
 | **Walk loop total** | | **~300 – 450 MB** |
 | OCR (on demand) | Load / unload | 150 – 250 MB peak |
-| VLM (Qwen3-VL-2B INT4, on demand) | Load / unload | 2.0 – 2.7 GB peak |
-| Reasoning LLM (Qwen3-4B INT4) | **Stretch only** | 3.0 – 3.5 GB peak |
+| Phone VLM (Qwen3-VL-2B INT4, optional, on demand) | Load / unload | 2.0 – 2.7 GB peak |
+| Reasoning LLM (Qwen3-4B INT4) | **Not on device** | 3.0 – 3.5 GB peak |
 
 The Walk loop is comfortable. Everything else is a spike.
 
 ### 4.5 The single most important memory rule
 
-> **MUST: the VLM and the reasoning LLM are never co-resident, with each other or
-> with anything else large.** On 12 GB, `2.5 GB + 3.2 GB` is over the ceiling and
-> the process dies.
+> **MUST: no two on-demand models are ever co-resident, with each other or with
+> anything else large.** On 12 GB, `2.5 GB + 3.2 GB` is over the ceiling and the
+> process dies.
 
 The parent project already solved this and the pattern transfers exactly: the
 Moondream2 integration loads the model only for an explicit snapshot request,
@@ -266,8 +326,14 @@ holds a single non-queueing worker, guards on free memory before loading, and
 **unloads before the response is returned**. Target tracking only starts after
 the unload, on CPU state.
 
-Reimplement that pattern verbatim. It was designed for a 8 GB VRAM budget and it
+Reimplement that pattern verbatim. It was designed for an 8 GB VRAM budget and it
 is exactly what a 12 GB phone needs.
+
+> **MUST NOT** assume that dropping a reference frees native memory. A native
+> runtime may retain arenas, contexts, and graph memory after the Kotlin or
+> Python object is gone. Call the runtime's explicit close/release API, then
+> **measure reclaimed memory**. If a runtime cannot be proved to release, host the
+> optional VLM in a separate killable process and reclaim by killing it.
 
 ---
 
@@ -276,12 +342,13 @@ is exactly what a 12 GB phone needs.
 ### 5.1 Three residency classes
 
 **Class A — resident for the session.**
-Detection and segmentation. Loaded when Walk Mode starts, unloaded when it ends.
-Never unloaded mid-walk, because a reload stall is a gap in safety coverage.
+Detection, and segmentation if it ships. Loaded when Walk Mode starts, unloaded
+when it ends. Never unloaded mid-walk, because a reload stall is a gap in safety
+coverage.
 
 **Class B — load on demand, single occupancy, unload before return.**
-OCR and the VLM. At most one Class B model is in memory at any instant. The
-sequence is strictly:
+OCR and the optional phone VLM. At most one Class B model is in memory at any
+instant. The sequence is strictly:
 
 ```
 check free memory  →  refuse if below floor
@@ -290,7 +357,7 @@ load model
        ↓
 run exactly one inference
        ↓
-unload model, release native buffers
+unload model, release native buffers, verify reclaim
        ↓
 return the result to the caller
 ```
@@ -299,9 +366,12 @@ return the result to the caller
 and unloading asynchronously creates a window where a second request can arrive
 and double the footprint.
 
+**MUST:** Class B invocation is explicit, one-shot, and cancellable with a
+deterministic timeout. There is no continuous Class B execution under any
+circumstance.
+
 **Class C — never on device.**
-The reasoning LLM on a 12 GB unit. Marked stretch, and on 12 GB the honest answer
-is probably no.
+The reasoning LLM. On a 12 GB unit the honest answer is no.
 
 ### 5.2 The free-memory floor
 
@@ -331,44 +401,72 @@ now."* The user is told, and Walk Mode continues uninterrupted.
   place where possible.
 - **MUST NOT** allocate a new `Bitmap` per frame. At 5–10 fps that is a garbage
   collection storm that will show up as stutter in the guidance cadence.
+- **MUST** hold at most one in-flight inference and one replaceable pending frame.
+  Latest frame wins; anything older is dropped, not queued (§8.3).
 
 ---
 
-## 6. Model selection and fallback ladders
+## 6. Model selection and gates
 
-Every stage has a ladder. Start at the top. Drop one rung when a gate fails.
-**MUST:** never skip straight to the bottom rung to save time — each rung down
-costs real capability that the demo depends on.
+Every stage has a gate and a fallback. **MUST:** never skip straight to the
+bottom rung to save time — each rung down costs real capability that the demo
+depends on. And **MUST NOT** change a model without a measured reason: model
+drift plus platform drift at the same time makes failures impossible to isolate.
 
-### 6.1 Detection
+### 6.1 Detection — YOLO11 first
+
+The current backend, its labels, its canonicalization, its tests, and its target
+memory are all written against **YOLO11n** semantics. Replacing it with YOLOv8
+before measuring anything discards that compatibility for nothing.
 
 | Rung | Model | Notes |
 |---|---|---|
-| 1 | **YOLOv8-det** (AI Hub) | First choice. AI Hub lists Snapdragon 8 Elite Gen 5. |
-| 2 | **YOLOX** (AI Hub) | Equivalent role, different operator coverage. Try if YOLOv8 fails conversion. |
-| 3 | YOLOv5 (AI Hub) | Older, broadest operator support. Last NPU option. |
+| 1 | **YOLO11 detection** | First choice. Matches the current backend's post-processing and label semantics exactly. |
+| 2 | **YOLOv8 detection** (AI Hub) | Only if YOLO11's phone export is materially less reliable or slower on the actual loaner. Costs a post-processing review. |
+| 3 | **YOLOX** (AI Hub) | Only if both fail *and* an official sample proves it end to end on the device. |
 | 4 | Any of the above on GPU | Slower, hotter, still acceptable. |
 | 5 | CPU | **Demo-only fallback.** Announce it as degraded. |
 
-**Output required:** boxes in normalized coordinates, class label, confidence.
-The 19-class risk set (Appendix B) is a *filter applied after inference*, not a
-retrained model. Run the full COCO output and filter twice, exactly as the parent
-project does — the risk set feeds tracking and guidance, while the full set feeds
-landmark memory so a user's spoken word is not discarded by aliasing.
+Qualcomm AI Hub publishes a
+[YOLO11 detection NPU profile](https://aihub.qualcomm.com/jobs/jpev1d9v5) on a
+Snapdragon 8 Elite Gen 5 reference device. That is **feasibility evidence, not an
+iQOO 15 application benchmark.** Only measurements on the loaner justify a final
+FPS, latency, memory, or NPU claim.
 
-### 6.2 Segmentation
+**Output required:** boxes in normalized coordinates, native COCO class label,
+confidence — and then **two filtered views from that one inference** (§9.3).
 
-| Rung | Model | Notes |
-|---|---|---|
-| 1 | Small AI Hub segmentation model, ADE20K-like labels | Ideal — direct label mapping from the existing logic. |
-| 2 | Any AI Hub segmentation model + a hand-written label map | Costs a mapping table, not architecture. |
-| 3 | Reduced cadence — segment every 3rd frame | See §16.3. Buys thermal headroom. |
-| 4 | **Geometric floor estimate, no segmentation** | Corridor costs from detection footprints and a horizon prior. Degrades honestly. |
+### 6.2 Segmentation — preserve the semantics or omit the capability
 
-> **MUST:** rung 4 sets `degraded_modules = ["segmentation"]` and the user is
-> told. The parent project's `PAUSE_UNCLEAR` behaviour exists precisely for this
-> case — with no surface evidence, most frames should resolve to `PAUSE_UNCLEAR`
-> rather than a confident corridor.
+The current backend uses **SegFormer-B0 ADE20K** for a specific reason: ADE20K
+exposes the indoor semantics DRISHTI reasons about — floor, wall, door, stairs,
+furniture. Substituting an arbitrary segmentation model silently deletes those
+capabilities while appearing to work.
+
+> **MUST NOT** substitute a Cityscapes checkpoint. Road-oriented classes do not
+> provide indoor floor, wall, door, and stairs semantics. It is not an equivalent
+> model; it is a different capability wearing the same word.
+
+**The gate, in order:**
+
+1. Compile the ADE20K checkpoint for the selected phone runtime.
+2. Prove output-label ordering and the preprocessing pipeline against the Python
+   implementation on identical inputs.
+3. Verify the camera-to-mask coordinate transform (§10).
+4. Measure sustained NPU execution, not a cold single shot.
+5. Replay the existing indoor semantic fixtures in
+   `backend/tests/fixtures/indoor/`.
+
+Qualcomm's
+[SegFormer-B0 ADE20K page](https://aihub.qualcomm.com/iot/models/segformer_base)
+documents the correct 150-class checkpoint, but does not by itself prove support
+on this mobile target.
+
+**If the gate fails:** ship detector-based corridor reasoning with explicit
+uncertainty, set `degraded_modules = ["segmentation"]`, and tell the user. Most
+frames will then resolve to `PAUSE_UNCLEAR` — which is the correct behaviour, and
+is exactly what `PAUSE_UNCLEAR` exists for. **MUST NOT** advertise wall or stairs
+semantics the deployed model cannot produce.
 
 **Label mapping required.** The existing logic needs these classes:
 
@@ -393,23 +491,46 @@ landmark memory so a user's spoken word is not discarded by aliasing.
 > keeps the feature alive. Use it rather than losing Explore Mode entirely, and
 > be honest about what it is if a judge asks.
 
-### 6.4 Scene VLM
+### 6.4 The locator and Scene VLM — optional proof, never a prerequisite
 
-| Rung | Model | Notes |
+**A VLM is never in the continuous loop, and no headline claim depends on one.**
+
+Qwen3-VL-2B is not a safe headline dependency until the exact package, operators,
+quantization, memory use, and accelerator execution are proved on the loaner.
+Qualcomm's
+[Qwen3-VL-2B-Instruct page](https://aihub.qualcomm.com/models/qwen3_vl_2b_instruct)
+does not establish support for this exact retail phone configuration.
+
+**Required gate for a phone VLM:**
+
+- explicit one-shot invocation only;
+- bounded input resolution;
+- no concurrent camera-frame backlog;
+- measured load, first-answer, repeated-answer, peak-memory, and thermal figures;
+- verified accelerator execution rather than a silent CPU fallback;
+- deterministic cancellation and timeout behaviour; and
+- the safety loop stays responsive, or is explicitly and audibly paused for the
+  duration.
+
+| Rung | Path | Notes |
 |---|---|---|
-| 1 | **Qwen3-VL-2B-Instruct** | AI Hub lists Snapdragon 8 Elite support. ~2.5 GB peak. |
-| 2 | Detection-derived scene summary | Compose a sentence from the detection list — no VLM at all. |
-| 3 | Cut Scene Mode | Nice-to-have tier. |
+| 1 | **Qwen3-VL-2B-Instruct on the phone** | Only after the gate above passes and every earlier gate is stable. |
+| 2 | **Laptop Moondream2 `/api/v1/vlm/locate`** | The existing, working snapshot locator. Explicit single snapshot in, normalized box out. Advertised as *laptop-assisted target localization* — never as on-device AI. |
+| 3 | Detection-derived scene summary | Compose a sentence from the detection list. No VLM at all. |
+| 4 | Cut Scene Mode | Nice-to-have tier. |
 
 > **Do not plan around Qwen3-VL-4B.** The parent project's research already
 > caught its AI Hub page simultaneously listing 8 Elite Gen 5 as supported and
 > stating *"This model is currently not supported on any Mobile chipset."* That
 > contradiction is exactly the trap this ladder exists to avoid.
 
-Rung 2 deserves respect. "A person ahead on the left, a chair to the right, a
+Rung 3 deserves respect. "A person ahead on the left, a chair to the right, a
 doorway centre" composed from detections is genuinely useful, costs no memory,
-and cannot fail. If the VLM does not land, this is a good answer, not a
-consolation prize.
+and cannot fail.
+
+> **MUST:** locator confidence is **nullable**. Moondream2 returns a box without
+> a calibrated probability. Preserve `confidence: null` and test the box itself.
+> Fabricating `0.85` for presentation is a §3.1 violation dressed as a field.
 
 ---
 
@@ -442,30 +563,49 @@ This is the primary path for detection and segmentation.
 
 **Path B — NexaSDK for Android.**
 A unified interface across CPU/GPU/NPU backends, covering LLMs, VLMs, OCR, ASR.
-Attractive for OCR and the VLM in one dependency. **Gated on 4.2.1 (the 16 GB
-floor).**
+Attractive for OCR and the optional VLM in one dependency. **Gated on 4.2.1 (the
+16 GB floor).**
 
 > **SHOULD:** vision on Path A, on-demand models on Path B if the gate passes.
-> Do not make the walk loop depend on Path B.
+> **MUST NOT** make the walk loop depend on Path B.
 
 ### 7.3 Proving the NPU is actually being used
 
-This matters for scoring — the 15% is for *on-device AI*, and a judge may
-reasonably ask whether it is the NPU or a CPU fallback. It also matters for
+This matters for scoring — the on-device-AI credit is real, and a judge may
+reasonably ask whether it is the NPU or a CPU fallback. It matters more for
 engineering, because a silent CPU fallback will pass functional testing and then
-melt the phone at hour 20.
+melt the phone twenty hours later.
 
-> **MUST:** build an on-screen diagnostics panel by hour 8 showing, per stage:
-> the backend actually in use (NPU / GPU / CPU), inference milliseconds, rolling
-> FPS, resident memory, and the current thermal status.
->
+> **MUST:** build an on-screen diagnostics panel early, showing per stage: the
+> backend actually in use (NPU / GPU / CPU), inference milliseconds, rolling FPS,
+> resident memory, and the current thermal status. It is also the best demo prop
+> available — toggling backends live and watching the millisecond count collapse
+> argues technical depth better than any slide.
+
+> **MUST NOT** infer NPU execution from speed alone. Fast execution does not
+> prove which backend ran. Capture runtime or profiler evidence from the
+> supported Qualcomm toolchain and record it alongside the measurement.
+
 > **MEASURE 7.3.1** — Does inference time drop by roughly an order of magnitude
-> when the NPU backend is selected versus CPU? If not, the NPU is not being used
-> regardless of what the API reports.
+> when the NPU backend is selected versus CPU, *and* does the runtime report the
+> accelerator? Both, or the claim is not made.
 
-This panel is also the best possible demo prop. Toggling backends live and
-showing the millisecond count collapse is a more convincing argument for
-technical depth than any slide.
+### 7.4 Build traceability
+
+Every installed APK **MUST** be traceable to a Git commit and build variant.
+Record together, for each measurement that will be quoted:
+
+| Field | Why |
+|---|---|
+| Git commit hash | Which code produced this |
+| APK checksum | Which binary is actually on the phone |
+| Model asset checksum | Which weights, which quantization |
+| Device serial | Which loaner |
+| Office Kit mirroring active? | Mirroring adds display, encode, network, and thermal load (§20.2) |
+| Measured result | The number itself |
+
+Without this, an apparently successful demo can be attributed to code or model
+assets that are not the ones running.
 
 ---
 
@@ -473,51 +613,73 @@ technical depth than any slide.
 
 ### 8.1 The walking loop
 
+**One accelerator, one scheduler.** The diagram below is a data-flow diagram, not
+a concurrency diagram: detection and segmentation do **not** submit concurrently.
+Concurrent submissions to a single NPU serialize unpredictably or exhaust shared
+memory, and the failure is intermittent.
+
 ```
 CameraX ImageAnalysis  (backpressure: KEEP_ONLY_LATEST)
         │
         ▼
-  Frame ring buffer  ─────────────────────────────┐
-        │                                          │
-        ▼                                          │
-  Orientation correction  ──►  FrameGeometry       │
-        │                                          │
-        ├──────────────────┬───────────────────┐   │
-        ▼                  ▼                   │   │
-  Detection (NPU)    Segmentation (NPU)         │   │
-  every frame        every Nth frame            │   │
-        │                  │                   │   │
-        ▼                  ▼                   │   │
-  DetectionResult[]   SurfaceRegion[]           │   │
-        │                  │                   │   │
-        └────────┬─────────┘                   │   │
-                 ▼                             │   │
-         Tracker  (CPU, session-scoped)         │   │
-                 │  motion, approach state      │   │
-                 ▼                             │   │
-         Spatial reasoning  (CPU)               │   │
-                 │  proximity bands             │   │
-                 │  corridor costs              │   │
-                 ▼                             │   │
-         Risk engine  (CPU)                     │   │
-                 │  RiskLevel per detection     │   │
-                 │  frame-level risk            │   │
-                 ▼                             │   │
-         Guidance state machine  (CPU)          │   │
-                 │  hysteresis, preemption      │   │
-                 ▼                             │   │
-      ┌──────────┼──────────┬─────────────┐    │   │
-      ▼          ▼          ▼             ▼    │   │
-   Speech    Haptics   Spatial audio   Overlay ◄┘   │
-                                          │         │
-                                          └─────────┘
-                                        (preview transform)
+  Frame ring buffer ── latest wins, stale frames dropped
+        │
+        ▼
+  Orientation correction  ──►  FrameGeometry
+        │
+        ▼
+  ┌─────────────────────────────────────────┐
+  │  ACCELERATOR SCHEDULER — serialized     │
+  │  priority 1: detection    (every frame) │
+  │  priority 2: segmentation (every Nth)   │
+  │  priority 3: on-demand Class B (never   │
+  │              concurrent with a walk     │
+  │              frame in flight)           │
+  └─────────────────────────────────────────┘
+        │                        │
+        ▼                        ▼
+  one detector invocation   SurfaceRegion[]
+        │
+        ├──► full COCO view ──► landmark memory (TTL) ──► §14
+        │
+        └──► aliased risk view (19 classes)
+                 │
+                 ▼
+         Tracker  (CPU, session-scoped)
+                 │  motion, approach state
+                 ▼
+         Spatial reasoning  (CPU)  ◄── SurfaceRegion[]
+                 │  proximity bands, corridor costs
+                 ▼
+         Risk engine  (CPU)
+                 │  weighted per-detection score, frame decision
+                 ▼
+         Guidance state machine  (CPU)
+                 │  persistence, hysteresis, preemption
+                 ▼
+      ┌──────────┼───────────────┬──────────────┐
+      ▼          ▼               ▼              ▼
+   Speech   Spatial audio    Overlay      Telemetry queue
+                             (preview      (bounded, drops
+                              transform)    on overflow → §19)
 ```
 
-### 8.2 What changed versus the current system
+### 8.2 Hard runtime rules
 
-The structure is identical. That is the point — the pipeline is proven, and only
-its execution location moves. Three things are genuinely different:
+- **MUST** hold one active inference and at most one replaceable pending frame.
+- **MUST** reject stale outputs. Latest frame wins.
+- **MUST** keep the detector and safety path long-lived and prioritized.
+- **MUST** keep VLM and OCR work explicit and one-shot, never continuous.
+- **MUST** suppress target speech and target spatial audio when the risk action
+  is actionable (anything other than `CLEAR`).
+- **MUST** keep phone safety processing running when laptop telemetry is lost.
+- **MUST** send the dashboard structured telemetry, never the camera stream.
+- **MUST** release the optional locator's model resources after each request.
+
+### 8.3 What changed versus the current system
+
+The stage structure is identical, and that is the point — the pipeline is proven,
+and mainly its execution location moves. Four things are genuinely different:
 
 1. **The JPEG encode is gone.** No compression, no multipart, no decode. The
    camera buffer goes to the model. This alone removes 20–40 ms per frame.
@@ -526,27 +688,31 @@ its execution location moves. Three things are genuinely different:
    comes only from processing overrun. Keep the gate — it now guards against
    thermal slowdown instead of network lag.
 3. **Segmentation cadence becomes a tunable.** On a laptop GPU both models ran
-   every frame. On the phone, decoupling them is the main thermal lever (§16.3).
+   every frame. On the phone, decoupling them is the main thermal lever (§17.3).
+4. **Accelerator access is explicitly scheduled.** On CUDA this was free. On one
+   NPU it is not.
 
-### 8.3 Frame lifecycle
+### 8.4 Frame lifecycle
 
 | Step | Owner | Budget |
 |---|---|---|
 | Acquire + convert YUV | Camera thread | 10 – 20 ms |
-| Preprocess (letterbox, normalize) | Inference thread | 5 – 15 ms |
+| Preprocess (rotate, letterbox, normalize) | Inference thread | 5 – 15 ms |
 | Detection inference | NPU | **MEASURE**, target < 20 ms |
-| Segmentation inference | NPU | **MEASURE**, target < 40 ms |
+| Segmentation inference (every Nth frame) | NPU | **MEASURE**, target < 40 ms |
 | Track + spatial + risk + guidance | Compute thread | 5 – 15 ms |
 | Emit outputs | Main / audio | < 5 ms |
 | **Total** | | **target ≤ 120 ms → ≥ 8 fps** |
 
-> **MEASURE 8.3.1** — sustained end-to-end frame time over a 10-minute walk, not
-> a cold single-shot benchmark. The cold number will look great and is not the
-> number that matters.
+> **MEASURE 8.4.1** — sustained **camera-to-guidance** frame time over a
+> ten-minute walk, not a cold single-shot benchmark and not a published model
+> profile. A raw model profile excludes preprocessing, tensor copies,
+> postprocessing, camera conversion, audio, and thermal throttling; the cold
+> number will look excellent and is not the number that matters.
 >
 > **Decision rule:** sustained ≥ 8 fps → ship as designed. 4–8 fps → drop
-> segmentation to every 3rd frame. < 4 fps → drop segmentation to rung 4 of §6.2
-> and announce degradation.
+> segmentation to every 3rd frame. < 4 fps → drop segmentation entirely per §6.2
+> and announce the degradation.
 
 ---
 
@@ -582,61 +748,91 @@ Produces `FrameGeometry`:
   needs the rotation, and one of them will forget.
 - `mirrored` is `false` always — the rear camera is the only camera used.
 
-### 9.3 Detection
+### 9.3 Detection — one inference, two views
 
-**Input:** oriented frame, letterboxed to the model's input size.
-**Output:** `DetectionResult[]` (Appendix A).
+This is the design to port, and it is not "run the 80-class model." It is:
 
+```
+one phone detector invocation
+    ├─► full native COCO detections ──► TTL landmark memory      (§14)
+    └─► aliased, allow-listed detections ──► tracker → spatial → risk
+```
+
+**The full view.** Native COCO names, no aliasing, above the confidence floor.
+Feeds landmark memory only, so a user asking for a `bottle`, `clock`, `book`,
+`laptop`, `cell phone`, or `cup` is answered from something the detector already
+saw, at no extra inference cost. Governed by `landmark_full_coco`,
+`landmark_min_confidence` (0.45), `landmark_min_sightings` (2),
+`landmark_memory_ttl_seconds` (45), `landmark_memory_max` (40), and
+`landmark_allow_person = false`.
+
+**The risk view.** The 19 canonical labels of Appendix B, with aliases applied:
+`backpack` and `handbag` → `bag`; `dining table` and `table` → `desk`. Feeds
+tracking, spatial analysis, risk scoring, overlays, and public walk detections.
+
+> **MUST NOT** feed all 80 classes into the safety engine. A COCO label says an
+> object is present; it does not establish that the object obstructs the walking
+> corridor. Widening the audited set widens the surface over which the system can
+> confidently say something wrong.
+
+Detector parameters, ported as-is:
+
+- Confidence floor: 0.35 (`detector_confidence_threshold`). **MEASURE** on device.
+- Model input size: 640 (`detector_image_size`).
+- NMS IoU: 0.45.
 - Boxes **MUST** be emitted in `ORIENTED_CAPTURE_NORMALIZED` space — normalized
   against the full oriented capture, **not** the letterboxed tensor. Un-letterbox
   before normalizing. This is the single most common source of overlay
-  misalignment and it is silent: boxes will be drawn slightly wrong in a way that
+  misalignment and it is silent: boxes are drawn slightly wrong in a way that
   looks like camera jitter.
-- Confidence floor: **MEASURE**, start at 0.35.
-- NMS IoU: 0.45.
-- Filter to the 19-class risk set for guidance; retain the full COCO output for
-  landmark memory.
 
 ### 9.4 Segmentation
 
-**Input:** oriented frame, model input size (typically smaller than detection).
-**Output:** `SurfaceRegion[]` with `NormalizedPolygon` geometry.
+Runs only if §6.2 passed. **Input:** oriented frame at the model input size
+(512×512 in the current configuration). **Output:** `SurfaceRegion[]` with
+`NormalizedPolygon` geometry.
 
-- Run the label map from §6.2.
+- Apply the label map from §6.2.
 - Contour extraction: threshold the class mask, find contours, simplify with
   Douglas–Peucker, emit as normalized polygons.
-- **MUST** cap polygon vertex count. An unsimplified mask contour can carry
-  thousands of points; that will stall the overlay renderer. Cap at 40 vertices
-  per polygon.
+- **MUST** cap polygon vertex count at 40. An unsimplified mask contour can carry
+  thousands of points, and that will stall the overlay renderer.
 - Low-confidence pixels map to `UNKNOWN`, not to `WALKABLE`. **Defaulting
   uncertainty to walkable is a §3 violation** — it manufactures confidence the
   model did not express.
 
 ### 9.5 Tracking
 
-Port of the existing session-scoped tracker.
+Port of the existing session-scoped tracker. Deterministic, cheap, CPU-only.
 
 - Associate detections across frames by IoU + class identity.
-- Maintain per-track: id, class, box history (last N=10), first-seen, last-seen.
+  `track_iou_threshold` 0.20, `track_centre_distance_threshold` 0.12,
+  `track_max_age_frames` 3.
+- Maintain per track: id, class, box history, first-seen, last-seen.
 - Derive `MotionVector` from the box-centre trajectory.
-- Derive `ApproachState` from box-area growth:
-  - area growing beyond a threshold → `APPROACHING`
+- Derive `ApproachState` from box-area growth, `approach_change_threshold` 0.05:
+  - area growing beyond the threshold → `APPROACHING`
   - area shrinking → `RECEDING`
   - within the deadband → `STATIONARY`
-  - insufficient history (< 3 frames) → `UNKNOWN`
-- **MUST** run on CPU. It is trivially cheap and there is no reason to involve
-  an accelerator.
+  - insufficient history → `UNKNOWN`
+- **MUST** run on CPU. There is no reason to involve an accelerator.
+- **MUST NOT** replace it with a "nearest object" heuristic during the port.
 
 ### 9.6 Spatial reasoning
 
-- **Proximity band** from box geometry — box height relative to frame height,
-  vertical position relative to the horizon prior. Purely relative.
-  **MUST NOT** be converted into or presented as a metric distance.
-- **Direction** — `LEFT` / `CENTRE` / `RIGHT` from the box centre against
-  corridor thirds; `UNKNOWN` when it straddles a boundary ambiguously.
+- **Proximity band** from box geometry — `proximity_area_weight` 0.55,
+  `proximity_area_scale` 0.50, thresholds at 0.35 / 0.55 / 0.78 for
+  `FAR` / `MEDIUM` / `NEAR`. Purely relative. **MUST NOT** be converted into or
+  presented as a metric distance.
+- **Direction** — `LEFT` / `CENTRE` / `RIGHT` from the box centre against the
+  corridor geometry; `UNKNOWN` when it straddles a boundary ambiguously.
+- **Corridor geometry** — a trapezoid, not thirds: `corridor_horizon_y` 0.38,
+  `corridor_top_half_width` 0.08, `corridor_bottom_half_width` 0.42. Port the
+  geometry exactly; it encodes the camera's perspective.
 - **Corridor costs** — for each of left/centre/right, accumulate cost from
-  blocking detections weighted by proximity band, plus non-walkable surface
-  fraction from segmentation.
+  blocking detections weighted by proximity band and path overlap, plus
+  non-walkable surface fraction from segmentation
+  (`surface_cost_unknown_weight` 0.10, `surface_cost_road_weight` 0.0).
 
 Emitted as `CorridorCosts { left_cost, centre_cost, right_cost }`.
 
@@ -645,15 +841,15 @@ Emitted as `CorridorCosts { left_cost, centre_cost, right_cost }`.
 ## 10. The coordinate transform contract
 
 > This section describes something already solved and working. It is here so the
-> rebuild does not break it. **Read it before touching the overlay.**
+> migration does not break it. **Read it before touching the overlay.**
 
 ### 10.1 The three coordinate spaces
 
 1. **Model tensor space** — letterboxed, padded, model-specific. Never leaves the
    inference stage.
 2. **`ORIENTED_CAPTURE_NORMALIZED`** — the full orientation-corrected capture,
-   normalized to `[0,1]`. **This is the wire contract.** Everything downstream
-   speaks it.
+   normalized to `[0,1]`. **This is the contract.** Everything downstream speaks
+   it, on the phone and on the wire.
 3. **Preview space** — actual pixels in the `PreviewView`, which is cropping
    and/or scaling the capture to fit the screen.
 
@@ -667,6 +863,8 @@ Emitted as `CorridorCosts { left_cost, centre_cost, right_cost }`.
 - **MUST NOT** let the preview crop leak backwards into detection coordinates.
   Guidance reasons about the full capture; the user's screen shows a crop of it.
   They are different, and conflating them shifts every box.
+- **MUST** apply the same rules to segmentation masks. A mask transform error is
+  harder to see than a box error and corrupts corridor costs directly.
 
 ### 10.3 The test that catches it
 
@@ -677,6 +875,7 @@ sits neatly inside the screen edges, the crop has leaked backwards and every
 detection is wrong by the same factor.
 
 Run this test in portrait *and* landscape before trusting any overlay.
+`PreviewTransformTest.kt` already exists; keep it green.
 
 ---
 
@@ -684,7 +883,8 @@ Run this test in portrait *and* landscape before trusting any overlay.
 
 ### 11.1 Corridor occupancy
 
-The frame divides into three vertical corridors. For each, cost accumulates from:
+The frame carries a perspective trapezoid split into left, centre, and right
+corridors (§9.6). For each, cost accumulates from:
 
 | Source | Contribution |
 |---|---|
@@ -693,79 +893,116 @@ The frame divides into three vertical corridors. For each, cost accumulates from
 | Detection in corridor, `MEDIUM` | moderate |
 | Detection in corridor, `FAR` | low |
 | `APPROACHING` state | multiplier on the above |
+| Path overlap with the corridor polygon | proportional |
 | Non-walkable surface fraction | proportional |
 | `UNKNOWN` surface fraction | **raises uncertainty, not cost** |
 
 That last row is the subtle one and it is a §3 requirement. Unknown surface does
-not make a corridor *blocked*; it makes the frame *unclear*. High unknown
-fraction across all three corridors resolves to `PAUSE_UNCLEAR`, not to a
-confident pick of whichever corridor scored least.
+not make a corridor *blocked*; it makes the frame *unclear*. A high unknown
+fraction resolves to `PAUSE_UNCLEAR`, not to a confident pick of whichever
+corridor scored least.
 
 ### 11.2 Preferred corridor
 
 ```
 if all three corridors exceed the block threshold        → STOP
-if unknown fraction is high across the frame             → PAUSE_UNCLEAR
+if the centre corridor's surface is uncertain            → PAUSE_UNCLEAR
 if centre is clear                                       → CENTRE (prefer straight)
-if exactly one side is clearly better than the other     → that side
+if exactly one side is clearly better by decision_margin → that side
 otherwise                                                → PAUSE_UNCLEAR
 ```
+
+Thresholds, ported as-is: `risk_centre_block_threshold` 0.40,
+`risk_side_block_threshold` 0.40, `decision_margin` 0.15,
+`direction_min_free_extent` 0.35, `corridor_clear_margin` 0.10.
+
+A side is only chosen when it is walkable, not marked uncertain, has enough free
+floor extent, and its wall ratio is below `wall_side_ratio_threshold` (0.20).
+Being merely *cheaper* than the other side is not sufficient.
 
 **MUST:** prefer `CENTRE` when it is viable. Steering a blind user sideways
 without cause is disorienting and erodes trust in the system.
 
 ### 11.3 Indoor structure detection
 
-The parent project's Phase 8 work added these and they are among its most useful
-outputs:
+Available **only if segmentation ships** (§6.2). Without it these outputs do not
+exist and **MUST NOT** be claimed.
 
-- **Frontal wall / dead end** — high non-walkable fraction across the full frame
-  width at the lower-middle band, stable across consecutive frames → stabilizes
-  to `WALL_OR_DEAD_END_AHEAD`.
-- **Stairs / level change** — the segmentation stairs class, or a strong
-  horizontal-edge band in the floor region → `STAIRS_OR_LEVEL_CHANGE_AHEAD`.
+- **Frontal wall / dead end** — high non-walkable fraction across the frame width
+  at the lower-middle band with collapsed floor extent
+  (`wall_centre_ratio_threshold` 0.35, `freespace_dead_end_max` 0.12) →
+  `WALL_OR_DEAD_END_AHEAD`.
+- **Stairs / level change** — the ADE20K stairs class in the centre corridor
+  above `stairs_centre_ratio_threshold` (0.08) →
+  `STAIRS_OR_LEVEL_CHANGE_AHEAD`.
 - **Side wall with open forward path** — high non-walkable on one side but a
   viable centre → do **not** stop; guide centre.
 
-> **MUST:** both stop conditions require **stabilization across consecutive
-> frames** before they are announced. A single-frame segmentation flicker
-> announcing "stairs ahead" to a walking blind user is exactly the confident
-> wrong answer §3.2 forbids. Require 3 consecutive frames.
+> **MUST:** both stop conditions stabilize before they are announced. A
+> single-frame segmentation flicker announcing "stairs ahead" to a walking blind
+> user is exactly the confident wrong answer §3.2 forbids. Stabilization is the
+> state machine's job (§13.3), not an ad-hoc check.
 
 ---
 
 ## 12. Risk engine port
 
-### 12.1 Per-detection risk
+### 12.1 Per-detection risk is a weighted score, not a maximum
 
-Inputs: class, proximity band, approach state, direction, confidence.
+**MUST** port the configured weighted combination exactly. It sums to 1.0 and the
+sum is validated at load:
 
-```
-base risk        ← class severity from the 19-class table (Appendix B)
-proximity        ← escalates: FAR → MEDIUM → NEAR → IMMEDIATE
-approach         ← APPROACHING escalates one level; RECEDING de-escalates one
-direction        ← CENTRE escalates relative to LEFT / RIGHT
-confidence       ← below the floor, cap the contribution rather than dropping it
-                   entirely (a low-confidence obstacle is still evidence)
-```
+| Component | Weight |
+|---|---|
+| Path overlap with the corridor polygon | **0.30** |
+| Relative proximity | **0.25** |
+| Approach rate | **0.20** |
+| Class severity (Appendix B) | **0.15** |
+| Detector confidence | **0.10** |
 
-Result: `RiskLevel` ∈ `CLEAR | WATCH | WARN | HIGH | CRITICAL` per detection.
+> **MUST NOT** replace this with `max(confidence, proximity, …)`, a nearest-object
+> rule, or any other "equivalent-looking" simplification during the port.
+> Threshold and weight changes are tuning changes: they must be measured,
+> versioned, and compared against the golden vectors — never silently rewritten
+> while the platform is also changing.
 
-### 12.2 Frame-level risk
+The score maps to `RiskLevel` through hysteresis bands: `risk_watch_enter` 0.25,
+`risk_warn_enter` 0.65, `risk_warn_exit` 0.50, `risk_high_enter` 0.80.
 
-The frame takes the **maximum** of its detection risks, then adjusts:
+### 12.2 Frame-level decision is a rule cascade, not an aggregate
 
-- Corridor costs indicating no viable path → escalate to at least `HIGH`.
-- High unknown fraction → do not escalate; route to `PAUSE_UNCLEAR` instead.
-  Uncertainty is not the same as danger, and conflating them makes the system
-  cry wolf until the user stops listening.
+The frame decision is produced by an ordered rule cascade, and the order is the
+behaviour. Port it in this sequence:
 
-### 12.3 Why maximum and not a sum
+1. **Critical approaching vehicle in the corridor** — a `bicycle`, `motorcycle`,
+   `car`, or `bus` above `risk_critical_path_overlap` 0.60,
+   `risk_critical_proximity` 0.70, and `risk_critical_approach` 0.15 →
+   `STOP` / `CRITICAL` / `APPROACHING_VEHICLE_CENTRE`, carrying the offending
+   track ids.
+2. **Wall or dead end** → `STOP` / `HIGH` / `WALL_OR_DEAD_END_AHEAD`.
+3. **Stairs or level change** → `STOP` / `HIGH` / `STAIRS_OR_LEVEL_CHANGE_AHEAD`.
+4. **All corridors blocked** → `STOP`, `CRITICAL` if an `IMMEDIATE` detection sits
+   in the centre, otherwise `HIGH` / `ALL_CORRIDORS_BLOCKED`.
+5. **Centre blocked, one side clearly better and genuinely walkable** →
+   `MOVE_LEFT` or `MOVE_RIGHT` / `HIGH` / `CENTRE_BLOCKED_CLEARER_SIDE`.
+6. **Centre blocked, no defensible side** → `PAUSE_UNCLEAR` / `WARN` /
+   `CENTRE_BLOCKED_DIRECTION_UNCLEAR`.
+7. **Centre surface uncertain** → `PAUSE_UNCLEAR` / `WARN` /
+   `CENTRE_SURFACE_UNCERTAIN`.
+8. **Highest-scoring detection at `WARN` or `HIGH`** → `CAUTION` / `WARN` /
+   `OBSTACLE_NEARBY`.
+9. Otherwise → `CLEAR` / `PATH_CLEAR`.
 
-A summed score lets three `FAR` chairs outweigh one `IMMEDIATE` person. The
-maximum is correct: the user needs to know about the worst thing in front of
-them, and the presence of additional distant clutter does not change what to do
-about it.
+### 12.3 Why the cascade, and why uncertainty is not danger
+
+Rules 1–3 are *evidence-specific* and bypass ordinary scoring because an
+approaching vehicle, a wall, and a level change are not the same kind of fact as
+a chair being nearby. A single aggregate score cannot express that.
+
+Rules 6 and 7 exist because **uncertainty is not danger.** Escalating every
+unclear frame to a warning makes the system cry wolf until the user stops
+listening; resolving it into a confident direction is a §3.1 violation.
+`PAUSE_UNCLEAR` is the correct third answer and it is not a failure state.
 
 ---
 
@@ -774,7 +1011,7 @@ about it.
 ### 13.1 The action vocabulary
 
 Frozen in `packages/contracts`. **MUST NOT** be extended without also updating
-the dashboard, the speech strings, and the haptic map.
+the dashboard and the speech strings.
 
 | Action | Meaning |
 |---|---|
@@ -785,111 +1022,195 @@ the dashboard, the speech strings, and the haptic map.
 | `STOP` | No viable path, or an immediate hazard. |
 | `PAUSE_UNCLEAR` | Evidence is weak or contradictory. **Not a failure state.** |
 
-Plus two indoor stop reasons carried in `reason_code`:
-`WALL_OR_DEAD_END_AHEAD`, `STAIRS_OR_LEVEL_CHANGE_AHEAD`.
+`RiskLevel` is `CLEAR | WATCH | WARN | HIGH | CRITICAL`. The reason code carries
+the *why* (Appendix C).
 
-### 13.2 Haptic mapping
+### 13.2 Output channels
 
-| Action | Pattern |
-|---|---|
-| `CLEAR` | `NONE` |
-| `CAUTION` | `CAUTION_SHORT` |
-| `MOVE_LEFT` / `MOVE_RIGHT` | `WARNING_DOUBLE` |
-| `STOP` | `CRITICAL_RAPID` |
-| `PAUSE_UNCLEAR` | `UNCLEAR_LONG` |
+Each action carries a spoken string, an icon shape, a colour, and a spatial-audio
+character. Colour is never alone (§3.2). `haptic_pattern` remains in the contract
+and the client still populates it, but haptics are outside this build's scope
+(§2.5) and no acceptance test depends on them.
 
-> `PAUSE_UNCLEAR` has its own distinct long pattern deliberately. The user must
-> be able to feel the difference between *"stop, there is a hazard"* and *"I
-> don't know what I'm looking at."* Those call for different human responses.
+### 13.3 Persistence, hysteresis, and the four pending codes
 
-### 13.3 Hysteresis
+Raw per-frame output flickers. Speaking every flicker is unusable. Port
+`AlertStateMachine` exactly, including the states it emits *while* waiting:
 
-Raw per-frame output flickers. Speaking every flicker is unusable.
-
-- **Escalation is immediate.** Rising to `STOP` takes effect on the frame that
-  produces it. Never delay a stop.
-- **De-escalation requires stability.** Dropping from `STOP` to `CLEAR` requires
-  **3 consecutive** frames of the lower level.
-- **Speech cooldown:** the same action is not re-spoken within 2.5 s unless the
-  level escalated. **MEASURE** on a real walk — too long feels unresponsive, too
-  short is chatter.
-- **Haptics are not subject to the speech cooldown.** They are cheap, fast, and
-  do not compete for the speech channel.
+- **`CRITICAL` commits immediately** and bypasses the cooldown. Never delay a
+  critical stop for persistence, hysteresis, or a speech timer.
+- **`PAUSE_UNCLEAR` commits immediately.** Admitting uncertainty is never delayed.
+- **A repeat of the current decision commits immediately.**
+- **A new non-critical decision needs `alert_persistence_frames` (2)** consecutive
+  frames. While it is pending:
+  - if the current action is `MOVE_LEFT` or `MOVE_RIGHT`, emit `PAUSE_UNCLEAR` /
+    `WARN` / `DIRECTION_CHANGE_PENDING` — the previous direction is no longer
+    trustworthy and continuing to assert it would be worse than admitting the
+    gap;
+  - otherwise emit a silent `CLEAR` / `WATCH` / `ALERT_PERSISTENCE_PENDING`.
+- **De-escalation to `CLEAR` requires `alert_clear_frames` (3)** consecutive clear
+  frames. While decaying, emit silent `CAUTION` / `WATCH` / `RISK_DECAY_PENDING`;
+  if the evidence score is still above `risk_warn_exit` (0.50), emit silent
+  `CAUTION` / `WATCH` / `RISK_HYSTERESIS_ACTIVE` and do not count the frame.
+- **Speech cooldown:** `alert_cooldown_seconds` 3.0, bypassed by `CRITICAL`.
+  **MEASURE** on a real walk — too long feels unresponsive, too short is chatter.
 
 The asymmetry between escalation and de-escalation is the whole design: fast to
 warn, slow to reassure.
 
+> The four pending codes are not debug noise. They are how the machine stays
+> honest during the frames when it does not yet know, and the golden vectors
+> (§22, R3) assert them.
+
 ### 13.4 Preemption
 
 ```
-priority 1  Walk safety guidance      (STOP, PAUSE_UNCLEAR, MOVE_*)
+priority 1  Walk safety guidance      (STOP, PAUSE_UNCLEAR, MOVE_*, CAUTION)
 priority 2  Target guidance           (Ask → Lock → Guide)
 priority 3  Scene answers, OCR results
 priority 4  Ambient / status
 ```
 
-**MUST:** priority 1 interrupts anything below it mid-utterance. Do not wait for
-a scene description to finish before saying "stop."
+**MUST:** priority 1 interrupts anything below it mid-utterance, using audio
+focus and queue interruption. Do not wait for a scene description to finish
+before saying "stop."
+
+**MUST:** target spatial audio is muted whenever the risk action is not `CLEAR`.
+Two directional cues competing for a blind user's attention is worse than one.
 
 ---
 
-## 14. Output layer — speech, haptics, spatial audio
+## 14. Target guidance — Ask, Lock, Guide
+
+The user asks for something by name; the system locks it and guides them to it.
+This is the second-most-valuable behaviour in the product and it **MUST NOT**
+depend on a VLM.
+
+### 14.1 Resolution order
+
+```
+spoken target
+    │
+    ▼
+1. reject `person` targets outright                    → refuse, spoken
+    │
+    ▼
+2. normalize the spoken word without destroying
+   valid COCO nouns                                    → canonical form
+    │
+    ▼
+3. search the multi-frame full-COCO landmark memory    → hit? go to 5
+    │
+    ▼
+4. one-shot locator (§6.4): phone VLM if it passed
+   its gate, else the laptop snapshot locator          → box, or refuse
+    │
+    ▼
+5. hand the normalized box to the on-device tracker    → GUIDING
+```
+
+Step 3 answers the common case at zero extra inference cost, because the landmark
+memory was populated by the same detector pass the walk loop already ran. A
+`bottle`, `clock`, `book`, `laptop`, `cell phone`, `cup`, or `backpack` should
+never pay VLM latency or memory.
+
+Step 4 is for what COCO cannot express: `registration desk` when no desk or table
+was seen, `exit sign`, `light switch`, `door handle`, or a compositional request
+like `an empty chair`.
+
+> **MUST:** a locator miss is spoken as a miss. "I can't find that" is a correct
+> answer. Guiding toward a guess is not.
+
+### 14.2 States
+
+`IDLE`, `SEEKING`, `GUIDING`, `ARRIVED`, `LOST`. These match the accepted target
+guidance redesign and the client's existing DTOs.
+
+> **MUST NOT** revive the older `LOCATING` / `LOCKED_TRACKING` names. The client,
+> the contracts, and the tests use the five above.
+
+### 14.3 Guidance behaviour
+
+Ported parameters: `walk_camera_hfov_degrees` 67.0,
+`target_turn_threshold_degrees` 25.0, `target_face_tolerance_degrees` 10.0,
+`target_reacquire_timeout_seconds` 8.0, `target_arrived_dwell_seconds` 2.0,
+`target_speech_interval_seconds` 4.0,
+`target_tracking_confidence_threshold` 0.25.
+
+- Relative bearing comes from the target's normalized horizontal coordinate
+  against the camera field of view, or from the world bearing and device heading
+  when both are available.
+- Spatial audio pans from that same bearing through the existing
+  `SpatialAudioEngine` and `SonarMapping`.
+- Loss of the target produces a stop-and-rescan prompt **only** when no
+  higher-priority safety prompt is active. After
+  `target_reacquire_timeout_seconds`, the state becomes `LOST`.
+- `ARRIVED` requires the dwell period, not a single frame.
+
+---
+
+## 15. Output layer — speech and spatial audio
 
 All of this already exists in `apps/android/.../feedback/` and carries over. What
-changes: it is now driven by an in-process guidance object instead of a parsed
-HTTP response. The interface should be identical.
+changes: it is driven by an in-process guidance object instead of a parsed HTTP
+response. The interface is identical.
 
 - **`SpeechEngine`** — TTS, tri-lingual (English, Hindi, Tamil), with
   `SpokenLanguage` selection. Strings in `GuidanceStrings.kt` and the `values-*`
   resource files.
-- **`HapticEngine`** — the five patterns above.
-- **`SpatialAudioEngine`** + **`SonarMapping`** — directional cue rendering.
+- **`SpatialAudioEngine`** + **`SonarMapping`** — directional cue rendering for
+  left / centre / right and continuous target panning. This is the directional
+  channel for this build (§2.5).
 - **`AudioFocusManager`** — **MUST** duck rather than stop the user's own audio.
   Blind users very often have music or a podcast running; killing it is hostile.
+  Critical speech uses focus and queue interruption (§13.4).
 - **`GyroSteering`** — interpolates directional cues between inference results.
   With a faster on-device loop this matters less than it did, but it still
   smooths the experience and it is already written.
+- **`HapticEngine`** — retained, still wired, not on the acceptance path (§2.5).
 
 > **MUST:** these run on their own thread and never block the inference loop.
 
 ---
 
-## 15. Threading and concurrency model
+## 16. Threading and the single-accelerator scheduler
 
 | Thread | Responsibility | Rules |
 |---|---|---|
 | Main / UI | Compose, overlay draw | Never blocks. Receives immutable snapshots. |
 | Camera | `ImageAnalysis` callback | Converts, hands off, closes the proxy. Fast. |
-| Inference | NPU calls | One at a time. Serialized. |
-| Compute | Track, spatial, risk, guidance | Pure Kotlin, no I/O. |
-| Output | Speech, haptics, audio | Own thread. Isolated from everything. |
-| Bridge | Office Kit hazard sync | **Fully detached.** Fire-and-forget. |
+| Accelerator | All NPU submissions | **Single scheduler. Serialized. Priority-ordered.** |
+| Compute | Track, spatial, risk, guidance, target | Pure Kotlin, no I/O. |
+| Output | Speech, spatial audio | Own thread. Isolated from everything. |
+| Telemetry | Coordinator sync | **Fully detached.** Fire-and-forget. |
 
-### 15.1 Rules
+### 16.1 Rules
 
-- **MUST NOT** allow the bridge thread to block anything. If the laptop is gone,
-  the walk continues without noticing. Enforce with a bounded queue that drops
-  on overflow, never blocks on enqueue.
-- **MUST** serialize NPU access. Two concurrent inference calls on the same
-  backend will at best serialize internally and at worst fault.
+- **MUST** route every accelerator submission through one scheduler with the
+  priority order of §8.1. Two concurrent submissions on one NPU will at best
+  serialize internally and at worst fault or exhaust shared memory — and the
+  failure is intermittent, which means it will appear during the demo and not
+  during testing.
+- **MUST NOT** submit a Class B model while a walk frame is in flight. Either
+  wait for the in-flight frame, or explicitly and audibly pause the walk loop.
+- **MUST NOT** allow the telemetry thread to block anything. If the laptop is
+  gone, the walk continues without noticing. Enforce with a bounded queue that
+  drops on overflow and never blocks on enqueue.
 - **MUST** pass immutable snapshots between stages. A shared mutable detection
   list being read by the overlay while the tracker mutates it is a crash that
   will only appear under load — which is to say, during the demo.
-- The foreground service (`WalkForegroundService`) keeps the loop alive with the
-  screen off. That is already implemented and **MUST** be preserved: a blind user
-  has no reason to keep a screen lit, and the battery saving is substantial.
 
 ---
 
-## 16. Thermal and sustained performance
+## 17. Thermal and sustained performance
 
-### 16.1 Why this is a first-class concern
+### 17.1 Why this is a first-class concern
 
-A 30-hour hackathon demo happens at the end, on a phone that has been running
-inference all weekend, in a crowded warm room. Cold benchmarks are irrelevant.
-Sustained thermal behaviour is what a live demonstration actually exercises.
+The demo happens at the end, on a phone that has been running inference all
+weekend, in a crowded warm room. Cold benchmarks are irrelevant. Sustained
+thermal behaviour is what a live demonstration actually exercises.
 
-### 16.2 Monitoring
+### 17.2 Monitoring
 
 ```kotlin
 val status = powerManager.currentThermalStatus
@@ -898,36 +1219,39 @@ val status = powerManager.currentThermalStatus
 
 Poll every 5 s. Surface it in the diagnostics panel from §7.3.
 
-### 16.3 The response ladder
+### 17.3 The response ladder
 
 | Thermal status | Response |
 |---|---|
 | `NONE`, `LIGHT` | Full rate. Detection every frame, segmentation every 2nd. |
 | `MODERATE` | Segmentation every 4th frame. Cap capture at 5 fps. |
-| `SEVERE` | Segmentation off (rung 4 of §6.2). Announce degradation. Detection only. |
+| `SEVERE` | Segmentation off. Announce degradation. Detection only. |
 | `CRITICAL`+ | Suspend Walk Mode. **Tell the user out loud.** Do not fail silently. |
 
 > **MUST:** the `CRITICAL` path speaks. A blind user walking with a phone that
 > has quietly stopped analysing is in a materially more dangerous position than
 > one who knows to stop and rely on their cane.
 
-### 16.4 Practical mitigations
+### 17.4 Practical mitigations
 
-- Keep the screen off during the walk — the foreground service already allows it,
-  and the display is a significant thermal contributor.
-- Do not charge while demoing. Charging and sustained NPU load together will
-  throttle much faster.
-- **MEASURE 16.4.1** — run a 20-minute continuous walk and record frame time at
-  minutes 1, 5, 10, 20. The delta between minute 1 and minute 20 is the number
-  that determines whether the demo holds up.
+- Do not charge while demoing. Charging and sustained NPU load together throttle
+  much faster.
+- Screen brightness is a real thermal contributor. Walk Mode is screen-on for
+  this build (§2.5), so keep brightness low during long soaks.
+- Pause Office Kit screen mirroring for any measurement that will be quoted, and
+  label the measurement accordingly (§20.2).
+- **MEASURE 17.4.1** — run a 20-minute continuous walk and record frame time at
+  minutes 1, 5, 10, and 20. The delta between minute 1 and minute 20 is the
+  number that determines whether the demo holds up.
 
 ---
 
-## 17. On-demand modes — Explore and Scene
+## 18. On-demand modes — Explore and Scene
 
-Both are **Class B** (§5.1): load, one inference, unload, then return.
+Both are **Class B** (§5.1): check memory, load, one inference, unload, then
+return. Both are explicit, gesture-triggered, and never continuous.
 
-### 17.1 Explore Mode — read a sign
+### 18.1 Explore Mode — read a sign
 
 - Trigger: an explicit gesture. Never automatic, never in the walk loop.
 - Capture one frame, run OCR, extract text and any route-number token
@@ -938,72 +1262,210 @@ Both are **Class B** (§5.1): load, one inference, unload, then return.
   two A"* is honest; reading it flatly implies a certainty the model did not have.
 - **MUST NOT** block Walk Mode. Walk guidance continues throughout.
 
-### 17.2 Scene Mode — ask about what is in front
+### 18.2 Scene Mode — ask about what is in front
 
 - Trigger: explicit gesture, then a spoken question.
-- Memory check (§5.2) → load VLM → one inference → unload → answer.
+- Memory check (§5.2) → load → one inference → unload → answer, via whichever
+  rung of §6.4 is live.
 - **MUST** refuse gracefully and audibly when memory is insufficient.
 - **MUST** be preempted by Walk safety guidance mid-answer (§13.4).
-- Timeout: **MEASURE**, start at 15 s. On timeout, unload and apologise.
+- **MUST** cancel deterministically. Timeout: **MEASURE**, start at 15 s. On
+  timeout, unload and say so.
 
-> **MUST NOT** put the VLM in the continuous loop under any circumstance. This is
+> **MUST NOT** put a VLM in the continuous loop under any circumstance. This is
 > both a memory rule and a §3 rule — a 2 B VLM's latency is far too high to
 > produce safety guidance, and any architecture that lets it try will eventually
 > speak a stale answer about a scene the user has already walked past.
 
 ---
 
-## 18. The Office Kit bridge
+## 19. The laptop coordinator and the dashboard
 
-### 18.1 What it is for
+The laptop is not deleted. It is moved out of the walking path and given a
+narrow, honest job.
 
-Two things, both optional, neither in the safety path:
+### 19.1 What the coordinator keeps
 
-1. **Hazard reports** — the walker reports an obstacle; the report reaches the
-   coordinator dashboard on the laptop.
-2. **Demo mirroring** — screen-mirror the phone for a live demonstration, so an audience can
-   see the overlay and the diagnostics panel.
+| Responsibility | Endpoint / store |
+|---|---|
+| Coordinator, database, and dashboard health | `/api/v1/health` |
+| Ingestion of structured phone telemetry and model/runtime measurements | telemetry envelope (Appendix A) |
+| Hazard report CRUD, recurrence, accessibility scoring | SQLite |
+| CSV / JSON export | existing exports |
+| The dashboard's REST and bounded live feed | existing |
+| Optional explicit snapshot locator | `/api/v1/vlm/locate` (§6.4 rung 2) |
 
-### 18.2 The rule that defines it
+The fixed coordinator URL `http://10.111.36.200:8000` stays as the client's
+default. It is **configuration for the dashboard and the optional locator**, not
+a dependency of Walk Mode.
+
+### 19.2 The rule that defines it
 
 > **MUST:** the walking experience is fully functional with the laptop absent,
-> powered off, or out of range. The bridge is a side channel. Nothing in the
-> guidance loop reads from it, waits on it, or checks whether it is connected.
+> powered off, or out of range. Nothing in the guidance loop reads from the
+> coordinator, waits on it, or checks whether it is connected.
 
-This is what makes the Red Light round survivable, and it is the demo's whole
-argument. Build it detached from day one — retrofitting independence is much
-harder than starting with it.
+Build it detached from day one. Retrofitting independence is much harder than
+starting with it, and this property is the demo's whole argument.
 
-### 18.3 Implementation
+### 19.3 What the coordinator must never become
+
+- **MUST NOT** receive the CameraX frame stream. The dashboard gets bounded
+  structured telemetry and, after explicit consent, confirmed hazard evidence.
+  Streaming frames adds bandwidth and couples monitoring to the safety loop.
+- **MUST NOT** be a fallback path for guidance. If the on-device pipeline
+  degrades, the response is §21's ladder, not a request to the laptop.
+  Reintroducing a network dependency under failure conditions restores precisely
+  the coupling this migration exists to remove, at the moment the user is least
+  able to tolerate it.
+- **MUST NOT** be described as part of the on-device safety claim. If the
+  optional locator is used, it is *laptop-assisted target localization*, and it
+  hands back one normalized box; the phone owns the tracker and all subsequent
+  high-rate guidance.
+
+### 19.4 Implementation
 
 - Bounded queue, capacity ~50, **drop-oldest** on overflow.
 - Sync attempts on a detached coroutine with a short timeout.
 - Failure is logged to the diagnostics panel, never surfaced as a user-facing
   error mid-walk.
-- Evidence JPEGs only after the explicit consent gesture (§3.3).
-
-### 18.4 What the bridge is not
-
-It is not a fallback path for guidance. If the on-device pipeline degrades, the
-response is §19's ladder, not a request to the laptop. Reintroducing a network
-dependency under failure conditions would restore precisely the coupling this
-rebuild exists to remove — and it would do so at the moment the user is least
-able to tolerate it.
+- Reconnection **MUST NOT** replay stale safety instructions. Telemetry is a
+  record of what already happened, not a command channel.
+- The dashboard's health and model panels distinguish phone NPU execution from
+  laptop CUDA execution (Appendix A), so a phone inference is never displayed as
+  consuming laptop VRAM.
 
 ---
 
-## 19. Degradation ladder
+## 20. Office Kit — development control plane
+
+> **Office Kit is how the team operates the machines. It is not a product
+> transport.** Its documented capabilities are screen mirroring, remote input,
+> shared clipboard, file transfer, and Remote PC — user-facing desktop features,
+> not an inference or telemetry API.
+
+### 20.1 What each capability is used for
+
+| Capability | Legitimate DRISHTI use |
+|---|---|
+| Screen mirror | Run the phone UI, inspect camera overlays, reproduce accessibility states, show the live phone during development and demos. |
+| Remote control | Operate the **phone** efficiently from the laptop keyboard and pointer. |
+| Shared clipboard | Move prompts, short logs, target names, model hashes, benchmark results. |
+| File transfer | Move APKs, compiled model assets, controlled fixtures, exported benchmark files. |
+
+> **MUST NOT** send camera frames, inference results, or safety decisions through
+> Office Kit. DRISHTI's optional phone-to-coordinator traffic uses its typed
+> local HTTP/WebSocket contracts and nothing else. Remote-desktop pixels and
+> input events are not a typed contract.
+
+### 20.2 Measurement discipline
+
+Mirroring and remote input add display, encoding, network, and thermal load. A
+benchmark captured with Office Kit active is **not** comparable to one captured
+without it.
+
+**MUST** record whether mirroring was active for every latency, temperature,
+power, or sustained-FPS measurement (§7.4). If the mirror materially distorts a
+measurement, pause it for that labelled measurement only, then reconnect.
+
+### 20.3 The Remote PC development loop
+
+The recommended control plane: the code, Android SDK, Gradle cache, Git
+checkout, coding-agent process, and build artifacts stay on the **laptop**; the
+iQOO is the device from which the team operates that environment.
+
+```text
+iQOO phone
+    |
+    v
+Office Kit Remote PC
+    |
+    v
+Laptop terminal
+    |
+    +--> coding agent (Codex CLI / Claude Code)
+    +--> Git
+    +--> Android command-line tools
+           +--> adb
+           +--> gradle / gradlew
+           +--> logcat
+           +--> install / replace / uninstall APK
+```
+
+The build and validation cycle:
+
+```text
+agent changes repository code on laptop
+              |
+              v
+      ./gradlew assembleDebug
+              |
+              v
+         adb devices                (verify the target)
+              |
+              v
+      adb install -r <apk-path>     (replace on the iQOO)
+              |
+              v
+        run app on the iQOO
+              |
+              v
+     Office Kit screen mirroring    (inspect UI, camera, behaviour)
+              |
+              v
+     adb logcat --pid=<drishti-pid> (capture filtered logs)
+              |
+              v
+     agent diagnoses and fixes ─────┐
+              ^                     |
+              └─────────────────────┘
+```
+
+This keeps one authoritative laptop checkout and toolchain, and makes Office Kit
+a genuine continuous part of development rather than a feature opened only for
+judging.
+
+### 20.4 The enablement gate
+
+Before relying on this workflow, prove on the event-supplied iQOO that:
+
+- Office Kit exposes Remote PC for that exact phone and OriginOS build;
+- the saved laptop can be reached and controlled for a sustained session;
+- the terminal accepts keyboard shortcuts and multiline commands correctly;
+- `adb devices` continues to show the same iQOO while Remote PC is active;
+- the chosen USB or wireless-debugging transport survives APK replacement;
+- `adb install -r` does not terminate the Office Kit control session;
+- `adb logcat` can be captured while the DRISHTI application is foreground; and
+- a failed build or crashed app leaves Remote PC usable for recovery.
+
+**If the gate fails:** fall back to Office Kit screen mirroring and input plus a
+supported phone-browser cloud task. **MUST NOT** rebuild the Android toolchain
+inside Termux.
+
+### 20.5 Workflows to reject
+
+| Proposed workflow | Verdict |
+|---|---|
+| Coding agent running directly on Android / Termux | Unsupported host. Native dependencies, credentials, Gradle, and long-running process stability add avoidable failure modes. |
+| Third-party relay exposing a local agent | Redundant when Remote PC works; adds credentials, relay availability, and supply-chain risk. |
+| A cloud agent as the final build validator | Useful for repository checks, insufficient as proof: it has no loaner, no device runtime, no ADB, no profiler. |
+| Multiple unsynchronized checkouts | Creates merge drift and makes it unclear which commit produced the installed APK. |
+| Presenting Remote PC development as on-device AI | It is not. The application's NPU execution is separate evidence and is the evidence that counts. |
+
+---
+
+## 21. Degradation ladder
 
 The order in which capability is surrendered under time or thermal pressure.
 **Descend in order. Never skip.**
 
 | # | State | User told? | Still useful? |
 |---|---|---|---|
-| 0 | Everything: detection, segmentation, OCR, VLM | — | Full product |
-| 1 | Drop VLM Scene Mode | On request only | Yes |
+| 0 | Everything: detection, segmentation, OCR, locator | — | Full product |
+| 1 | Drop Scene Mode / phone VLM | On request only | Yes |
 | 2 | Drop OCR Explore Mode | On request only | Yes |
 | 3 | Segmentation every 4th frame | No | Yes, slightly coarser |
-| 4 | Segmentation off, geometric floor estimate | **Yes, spoken** | Yes, more `PAUSE_UNCLEAR` |
+| 4 | Segmentation off, detector-only corridor reasoning | **Yes, spoken** | Yes, more `PAUSE_UNCLEAR` |
 | 5 | Detection on GPU instead of NPU | No | Yes, hotter |
 | 6 | Detection on CPU | **Yes, spoken** | Barely — demo only |
 | 7 | Walk Mode suspended | **Yes, spoken, insistent** | No |
@@ -1012,92 +1474,148 @@ The order in which capability is surrendered under time or thermal pressure.
 > depend on knowing what the system can currently see, and a silently degraded
 > assistant is worse than an honestly absent one.
 
----
-
-## 20. The 30-hour schedule
-
-Chennai: clock starts Saturday 10:00, active hacking from 11:00, awards Sunday
-~17:00. Two scored evaluation rounds plus a Top 10 pitch.
-
-### Saturday
-
-| Hours | Work | Gate |
-|---|---|---|
-| 10:00–11:00 | Check-in, teach-in, device handover, Office Kit pairing | — |
-| 11:00–13:00 | **Device recon.** RAM variant. Custom APK install. SDK availability. NPU reachable at all. | **GATE 1** |
-| 13:00–16:00 | Detection on NPU. Diagnostics panel. Prove NPU ≠ CPU. | **GATE 2** |
-| 16:00–19:00 | Segmentation on NPU. Camera pipeline wired end to end. Overlay correct. | — |
-| 19:00–20:00 | **Evaluation round 1** — show live on-device detection | — |
-| 20:00–00:00 | Port tracker, spatial reasoning, risk engine to Kotlin | — |
-
-### Sunday
-
-| Hours | Work | Gate |
-|---|---|---|
-| 00:00–04:00 | Guidance state machine. Reconnect speech and haptics. | — |
-| 04:00–07:00 | **Airplane-mode walk test.** End-to-end, no network. | **GATE 3** |
-| 07:00–09:00 | Office Kit bridge, dashboard live, hazard reporting | — |
-| 09:00–10:00 | **Evaluation round 2** | — |
-| 10:00–13:00 | OCR if green; VLM only if everything above is solid | — |
-| 13:00–15:00 | **Freeze.** Rehearse the demo. Thermal soak test. | — |
-| 15:00–17:00 | Top 10 pitch, awards | — |
-
-### The gates
-
-- **GATE 1 (13:00 Sat)** — if custom APKs cannot be installed or the NPU is
-  unreachable, the entire plan changes and there are still 21 hours to pivot.
-  **This is why device recon is first and nothing else starts before it.**
-- **GATE 2 (16:00 Sat)** — if detection is not on the NPU by hour 5, drop the VLM
-  and OCR from the plan immediately and spend the time on the walk loop. Do not
-  carry two stretch goals past this point.
-- **GATE 3 (07:00 Sun)** — if the airplane-mode walk does not work, stop all
-  feature work and fix it. **This single test is the entire pitch.** A polished
-  app that needs Wi-Fi has lost.
-
-### Scheduling notes
-
-- The rehearsal block is not padding. A demo that has never been rehearsed will
-  fail in a room full of judges in a way it never failed on the bench.
-- Sleep in shifts. The 00:00–04:00 block is the highest-risk work in the schedule
-  and it is scheduled for the middle of the night; make sure whoever owns the
-  risk-engine port is not the person who has been awake for 20 hours.
+Losing the coordinator is **not** on this ladder. It costs the dashboard and the
+optional locator, and nothing else.
 
 ---
 
-## 21. Verification plan
+## 22. Build plan — dependency gates
 
-### 21.1 The one test that matters
+Dependency-ordered, not clock-ordered. **Stop at the first failed gate and take
+the stated fallback.** A gate is passed by evidence, not by opinion.
 
-> **Airplane mode. Walk a real corridor. Guidance continues, correctly, for ten
-> minutes.**
+### R0 — Freeze behaviour and evidence
 
-If this passes, the architecture holds. If it does not, nothing else compensates.
-Run it at GATE 3 and again after the freeze.
+- Tag or branch the known-working laptop implementation.
+- Export golden JSON vectors from the existing tests: detector canonicalization
+  and aliasing, spatial geometry, risk scoring, the frame rule cascade, state
+  machine persistence and hysteresis including the four pending codes, safety
+  preemption, and target state transitions.
+- Record the current dashboard contracts and the Kotlin baseline tests.
 
-### 21.2 Functional checks
+**Gate:** existing Python, dashboard, and Kotlin tests pass; golden fixtures are
+committed; no accepted behaviour is ambiguous.
+
+### R1 — Prove the phone inference runtime
+
+- Run the smallest official Qualcomm object-detection sample on the loaner.
+- Confirm camera tensor format, quantization, output layout, and the accelerator
+  actually used.
+- Profile YOLO11 first; YOLOv8 only if YOLO11 measurably fails (§6.1).
+
+**Gate:** repeated NPU execution verified on the physical device, with runtime or
+profiler evidence, and an acceptable measured camera-to-box latency. Otherwise
+use the best proven official detector sample and reduce model scope.
+
+### R2 — Replace the network inference seam
+
+- Introduce an `OnDeviceDetector` boundary under the existing CameraX pipeline.
+- Keep latest-frame-wins and the freshness rejection.
+- Produce **both** detection views from one inference (§9.3).
+- Render aligned boxes through the existing preview transform.
+
+**Gate:** ten repeated controlled frames produce aligned, fresh detections with no
+unbounded queue and no FastAPI dependency in the walking path.
+
+### R3 — Port deterministic safety behaviour
+
+- Port tracking, normalized corridor geometry, relative proximity, weighted
+  scoring, the critical-override cascade, persistence, hysteresis, and
+  uncertainty handling.
+- Run the R0 golden vectors against the Kotlin implementation.
+
+**Gate:** cross-language parity on **decision, reason code, preferred corridor,
+and critical override** for every golden success *and* failure case; an
+actionable risk always preempts target guidance.
+
+### R4 — Finish phone-owned accessible output
+
+- Drive the existing speech and audio-focus components from the in-process
+  guidance object.
+- Refine `SpatialAudioEngine` and `SonarMapping` for left / centre / right and
+  target panning.
+- Haptics are out of scope for acceptance (§2.5).
+
+**Gate:** visible guidance, spoken action, and spatial audio agree on the same
+frame; a critical warning interrupts target audio immediately.
+
+### R5 — Add segmentation only after proof
+
+- Attempt the exact ADE20K semantic model on the selected runtime (§6.2).
+- Validate class mapping, mask transform, and sustained resource use.
+
+**Gate:** the existing indoor floor/wall/stairs fixtures pass on the phone. If
+not, omit segmentation, announce the degradation, and report detector-only
+uncertainty honestly.
+
+### R6 — Port Ask → Lock → Guide
+
+- Populate the bounded full-COCO landmark memory from the same detector pass.
+- Resolve eligible requests from memory and initialize the on-device tracker.
+- Drive target state and spatial audio from live phone frames.
+
+**Gate:** detector-memory target lock, tracking, loss, rescan, and safety
+preemption all pass **without a VLM in the path**.
+
+### R7 — Connect the coordinator and the existing dashboard
+
+- Send structured telemetry and confirmed hazard events only.
+- Adapt health and model panels to distinguish phone NPU from laptop CUDA.
+- Preserve SQLite and the exports.
+
+**Gate:** dashboard loss or coordinator failure cannot affect phone guidance, and
+reconnection does not replay stale safety instructions.
+
+### R8 — Optional locator fallback
+
+- Attempt a phone VLM only if every earlier gate is stable (§6.4).
+- If it fails, enable the existing laptop Moondream2 snapshot locator.
+- Hand only the returned normalized box and label to the phone tracker.
+
+**Gate:** bounded memory, timeout, cancellation, target handoff, and safety
+preemption all pass; no continuous VLM invocation exists anywhere in the build.
+
+---
+
+## 23. Verification plan
+
+### 23.1 The test that matters
+
+> **Walk a real corridor with the coordinator powered off. Guidance continues,
+> correctly, for ten minutes.**
+
+If this passes, the architecture holds: the phone owns the loop. Run it at R3 and
+again after the feature freeze.
+
+### 23.2 Functional checks
 
 | # | Test | Pass condition |
 |---|---|---|
-| 1 | Clear hall | Reaches `CLEAR`, safe polygon on the floor |
+| 1 | Clear hall | Reaches `CLEAR` / `PATH_CLEAR`; safe polygon on the floor |
 | 2 | Frontal wall | Stabilizes to `WALL_OR_DEAD_END_AHEAD`, no movement cue into it |
 | 3 | Side wall, open centre | Guides `CENTRE`, does **not** stop |
 | 4 | Stairs | Stabilizes to `STAIRS_OR_LEVEL_CHANGE_AHEAD` |
 | 5 | Person approaching | Escalates as they close; `APPROACHING` set |
-| 6 | Obstacle centre, left clear | `MOVE_LEFT` |
-| 7 | Camera covered | `PAUSE_UNCLEAR`, never a confident direction |
-| 8 | Lens smeared / low light | `PAUSE_UNCLEAR`, degradation announced |
-| 9 | Overlay alignment | `(0,0,1,1)` box traces full oriented capture, both orientations |
-| 10 | Airplane mode | Full function, no error, no retry storm |
-| 11 | Screen off | Guidance continues via foreground service |
-| 12 | 20-minute soak | Frame time at minute 20 within 2× of minute 1 |
-| 13 | Scene Mode under memory pressure | Refuses audibly, walk continues |
-| 14 | Laptop powered off mid-walk | No interruption whatsoever |
+| 6 | Obstacle centre, left clear | `MOVE_LEFT` / `CENTRE_BLOCKED_CLEARER_SIDE` |
+| 7 | Obstacle centre, neither side defensible | `PAUSE_UNCLEAR` / `CENTRE_BLOCKED_DIRECTION_UNCLEAR` |
+| 8 | Camera covered | `PAUSE_UNCLEAR`, never a confident direction |
+| 9 | Lens smeared / low light | `PAUSE_UNCLEAR`, degradation announced |
+| 10 | Direction change under persistence | Emits `DIRECTION_CHANGE_PENDING`, not a stale side cue |
+| 11 | Overlay alignment | `(0,0,1,1)` box traces the full oriented capture, both orientations |
+| 12 | Coordinator powered off mid-walk | No interruption whatsoever, no retry storm |
+| 13 | Wi-Fi lost mid-walk | Identical behaviour to test 12 |
+| 14 | 20-minute soak | Frame time at minute 20 within 2× of minute 1 |
+| 15 | Target from landmark memory | Locks and guides with no VLM invoked |
+| 16 | Target request during a `STOP` | Safety speech wins; target audio muted |
+| 17 | Scene Mode under memory pressure | Refuses audibly, walk continues |
+| 18 | Golden vector parity | Kotlin matches Python on decision, reason code, corridor, override |
 
-> Tests 7 and 8 are the ones most likely to be skipped and are the most important
-> in the set. They verify the system admits uncertainty rather than inventing
-> confidence, which is the §3 behaviour that separates this from a demo toy.
+> Tests 8, 9, and 10 are the ones most likely to be skipped and are the most
+> important in the set. They verify the system admits uncertainty rather than
+> inventing confidence, which is the §3 behaviour that separates this from a demo
+> toy.
 
-### 21.3 Physical testing safety
+### 23.3 Physical testing safety
 
 **MUST NOT** test blindfolded. The parent project's rules are explicit: physical
 testing uses controlled environments and never involves unsafe blindfolded
@@ -1106,7 +1624,7 @@ walking. A sighted tester holds the phone and evaluates whether the guidance
 
 ---
 
-## 22. Unknowns to resolve on-site, in order
+## 24. Unknowns to resolve on-site, in order
 
 Work top to bottom. Each answer changes what is worth attempting below it.
 **Nothing else starts until items 1–4 are answered.**
@@ -1116,13 +1634,14 @@ Work top to bottom. Each answer changes what is worth attempting below it.
 | 1 | RAM variant — 12 or 16 GB? | 12 GB → this document as written. |
 | 2 | Can we install a custom APK? | No → the entire plan is void. Escalate to organisers immediately. |
 | 3 | Can custom model files be loaded? | No → AI Hub prebuilt only, no custom quantization. |
-| 4 | Is the NPU reachable from a third-party app? | No → GPU path, and the on-device-AI pitch weakens sharply. |
+| 4 | Is the NPU reachable from a third-party app? | No → GPU path, and the on-device-AI claim weakens sharply. Say so plainly rather than implying NPU. |
 | 5 | Which SDK/runtime do organisers provide? | Shapes §7 entirely. |
 | 6 | Is internet available during setup? | No → models must be pre-staged on the laptop before arrival. |
-| 7 | Does NexaSDK initialise on 12 GB? | No → §6.3 rung 2/3, §6.4 rung 2. |
-| 8 | Is AI Hub / GenieX reachable during the event? | No → pre-download every candidate model beforehand. |
-| 9 | Can NPU telemetry be shown to judges? | No → the diagnostics panel becomes the only evidence. |
-| 10 | Does HackTracker distinguish NPU from CPU inference? | Unknown → assume not; rely on the diagnostics panel as evidence. |
+| 7 | Does Office Kit Remote PC work on this firmware? | No → §20.4 fallback; do not rebuild the toolchain on the phone. |
+| 8 | Does ADB survive alongside Remote PC? | No → mirror-and-input workflow only, with builds driven at the laptop directly. |
+| 9 | Does NexaSDK initialise on 12 GB? | No → §6.3 rung 2/3, and the phone VLM drops to §6.4 rung 2. |
+| 10 | Is AI Hub reachable during the event? | No → pre-download every candidate model beforehand. |
+| 11 | Can accelerator telemetry be shown to judges? | No → the diagnostics panel is the only evidence, and it must be honest about what it can and cannot prove. |
 
 > **Item 6 deserves emphasis: pre-stage every candidate model on the laptop
 > before travelling to Chennai.** Downloading multi-gigabyte model files over
@@ -1132,10 +1651,11 @@ Work top to bottom. Each answer changes what is worth attempting below it.
 
 ---
 
-## Appendix A — preserved contract types
+## Appendix A — contract types and proposed amendments
 
-From `packages/contracts/src/index.ts`. The rebuilt pipeline **MUST** produce
-these shapes. The dashboard and Android client are already written against them.
+From `packages/contracts/src/index.ts`. The pipeline **MUST** produce these
+shapes. The dashboard and the Android client are already written against them and
+neither is being rebuilt.
 
 ```typescript
 type RiskLevel     = "CLEAR" | "WATCH" | "WARN" | "HIGH" | "CRITICAL";
@@ -1184,82 +1704,166 @@ interface StageTimings {
 }
 ```
 
-### One contract change the rebuild requires
+`haptic_pattern` stays in the contract and the client keeps populating it. It is
+simply not on this build's acceptance path (§2.5).
 
-`ComputeDevice` is currently `"CUDA" | "CPU" | "NONE"`. On-device it becomes:
+### Proposed amendments
 
-```typescript
-type ComputeDevice = "NPU" | "GPU" | "CPU" | "NONE";
-```
+Moving execution to the phone changes more than one enum value. Execution
+location, timing ownership, model state, and telemetry direction all change, and
+the dashboard must not be left implying that a phone inference consumed laptop
+VRAM.
 
-This is the **only** contract change permitted without a written decision.
-Everything else is frozen.
+**These are proposals.** They are not in force until recorded in
+`docs/DECISIONS.md`, with tests in Python, TypeScript, and Kotlin.
+
+| # | Amendment | Why |
+|---|---|---|
+| 1 | `ComputeDevice` becomes `"NPU" \| "GPU" \| "CUDA" \| "CPU" \| "NONE"` | Adds phone execution while keeping `CUDA` valid for the coordinator and the optional laptop locator. |
+| 2 | Model status carries an execution owner: `"PHONE" \| "LAPTOP"` | So the dashboard never displays phone NPU inference as laptop VRAM consumption. |
+| 3 | A phone-to-coordinator telemetry envelope | Frame id and time, phone-measured stage timings, detector and segmenter state, guidance action, reason code, target state, and safety override. **No image bytes.** |
+| 4 | Normalized box/point coordinates and target state names are unchanged | `ORIENTED_CAPTURE_NORMALIZED` and `IDLE`/`SEEKING`/`GUIDING`/`ARRIVED`/`LOST` stay exactly as they are. |
+| 5 | Locator confidence becomes nullable | Moondream2 returns a box without a calibrated probability. `null` is the truthful value; a fabricated `0.85` is not. |
+| 6 | A compatibility adapter for the dashboard | It keeps working against the current shapes while it learns phone-owned telemetry. |
+| 7 | `http://10.111.36.200:8000` is retained as the coordinator URL | Configuration for the dashboard and the optional locator; **not** a Walk Mode dependency. |
 
 ---
 
 ## Appendix B — the 19-class risk set
 
-Filtered from full COCO output after inference. Severity is the base input to
-§12.1; proximity, approach and direction modify it from there.
+The audited allowlist applied to the risk view after inference (§9.3), with the
+class severities that feed the 0.15-weighted severity term of §12.1. These are
+the values in the working implementation; **MUST** port them as-is and change
+them only as a measured, versioned tuning decision.
 
-| Class | Base severity | Note |
-|---|---|---|
-| `person` | HIGH | Highest when `APPROACHING`. Never identified, only detected. |
-| `bicycle` | HIGH | Fast, quiet, often unnoticed |
-| `car` | CRITICAL | |
-| `motorcycle` | CRITICAL | Fast and common in Indian street contexts |
-| `bus` | CRITICAL | |
-| `truck` | CRITICAL | |
-| `traffic light` | INFO | Context, never a crossing instruction — see §3.1 |
-| `stop sign` | INFO | Context only |
-| `bench` | MEDIUM | Static trip hazard |
-| `chair` | MEDIUM | The most common indoor obstacle |
-| `couch` | MEDIUM | |
-| `potted plant` | MEDIUM | Very common in Indian corridors and lobbies |
-| `dining table` | MEDIUM | Low edges, hard to see |
-| `dog` | HIGH | Unpredictable movement |
-| `cow` | HIGH | Genuinely common in Indian street contexts |
-| `pole` | HIGH | Narrow, easily missed by detection, painful to hit |
-| `door` | INFO | Navigation landmark |
-| `stairs` | CRITICAL | Level change — the highest-consequence indoor hazard |
-| `backpack` | LOW | Floor clutter |
+| Canonical class | Severity | Note |
+|---|---:|---|
+| `motorcycle` | 1.00 | Fast and common in Indian street contexts |
+| `bus` | 1.00 | |
+| `car` | 0.95 | |
+| `refrigerator` | 0.85 | Large fixed obstruction |
+| `desk` | 0.80 | Low edges, hard to see. Alias of `dining table`, `table` |
+| `bicycle` | 0.80 | Fast, quiet, often unnoticed |
+| `bed` | 0.80 | |
+| `door` | 0.80 | **Not reachable from stock COCO weights — see below** |
+| `chair` | 0.75 | The most common indoor obstacle |
+| `couch` | 0.75 | |
+| `toilet` | 0.75 | |
+| `potted plant` | 0.70 | Very common in Indian corridors and lobbies |
+| `bench` | 0.65 | Static trip hazard |
+| `suitcase` | 0.65 | |
+| `sink` | 0.65 | |
+| `person` | 0.55 | Highest when `APPROACHING`. Never identified, only detected |
+| `umbrella` | 0.55 | |
+| `bag` | 0.45 | Floor clutter. Alias of `backpack`, `handbag` |
+| `tv` | 0.45 | |
 
-> `traffic light` and `stop sign` are **INFO and stay INFO**. Escalating them
-> toward a crossing recommendation is the most tempting §3.1 violation available
-> in this codebase. The system reports that a traffic light is present. It never
-> reports what it means.
+**Aliases applied to the risk view only:** `backpack` → `bag`, `handbag` → `bag`,
+`dining table` → `desk`, `table` → `desk`. The full-COCO landmark view keeps
+native names and applies **no** aliases, so a user who asks for a "backpack" is
+answered with a backpack.
+
+### The `door` trap
+
+Stock COCO weights have no `door` class (Appendix D). Therefore:
+
+- the allowlist contains 19 names;
+- only **18** are reachable from a stock YOLO detector, aliases included;
+- `door` cannot be emitted by the stock detector at all; and
+- current door evidence comes from **ADE20K segmentation**, not from YOLO.
+
+The forward-compatible `door` entry is harmless. **A claim that the detector finds
+doors is false** unless a custom detector is trained and measured. If segmentation
+does not ship (§6.2), door evidence does not exist and **MUST NOT** be advertised.
+
+### On severity and the classes that are absent
+
+`traffic light` and `stop sign` are not in the risk set, and adding them is the
+most tempting §3.1 violation available in this codebase. If they are ever added,
+they are context only: the system may report that a traffic light is present. It
+never reports what it means.
 
 ---
 
 ## Appendix C — reason codes
 
-`GuidanceContract.reason_code` carries the *why* for the dashboard and for
-debugging. Not spoken verbatim.
+`GuidanceContract.reason_code` carries the *why* for the dashboard, for the
+golden vectors, and for debugging. Not spoken verbatim. These are the codes the
+working implementation emits; the Kotlin port **MUST** produce the same code for
+the same input (§22, R3).
 
-| Code | Trigger |
-|---|---|
-| `CLEAR_PATH` | No blocking evidence |
-| `OBSTACLE_CENTRE` | Blocking detection in centre corridor |
-| `OBSTACLE_APPROACHING` | Tracked object with `APPROACHING` state |
-| `ALL_CORRIDORS_BLOCKED` | Every corridor over threshold |
-| `WALL_OR_DEAD_END_AHEAD` | Stabilized frontal wall |
-| `STAIRS_OR_LEVEL_CHANGE_AHEAD` | Stabilized stairs / level change |
-| `INSUFFICIENT_SURFACE_EVIDENCE` | Unknown surface fraction too high |
-| `CONTRADICTORY_EVIDENCE` | Detection and segmentation disagree |
-| `LOW_LIGHT` | Frame luminance below threshold |
-| `SEGMENTATION_UNAVAILABLE` | Running degraded, rung 4 |
-| `THERMAL_THROTTLE` | Reduced cadence from thermal status |
-| `MODEL_UNAVAILABLE` | A required model failed to load |
+### Committed decisions
+
+| Code | Trigger | Action / level |
+|---|---|---|
+| `PATH_CLEAR` | No blocking evidence | `CLEAR` |
+| `OBSTACLE_NEARBY` | Highest-scoring detection at `WARN` or `HIGH` | `CAUTION` / `WARN` |
+| `CENTRE_BLOCKED_CLEARER_SIDE` | Centre blocked, one side clearly better and genuinely walkable | `MOVE_LEFT` or `MOVE_RIGHT` / `HIGH` |
+| `CENTRE_BLOCKED_DIRECTION_UNCLEAR` | Centre blocked, no side defensible by `decision_margin` | `PAUSE_UNCLEAR` / `WARN` |
+| `CENTRE_SURFACE_UNCERTAIN` | Centre corridor surface evidence insufficient | `PAUSE_UNCLEAR` / `WARN` |
+| `ALL_CORRIDORS_BLOCKED` | Every corridor over threshold | `STOP` / `HIGH`, `CRITICAL` if `IMMEDIATE` in centre |
+| `APPROACHING_VEHICLE_CENTRE` | Vehicle above the critical overlap, proximity, and approach thresholds | `STOP` / `CRITICAL`, bypasses cooldown |
+| `WALL_OR_DEAD_END_AHEAD` | Stabilized frontal wall (segmentation) | `STOP` / `HIGH` |
+| `STAIRS_OR_LEVEL_CHANGE_AHEAD` | Stabilized stairs or level change (segmentation) | `STOP` / `HIGH` |
+
+### Pending and hysteresis states
+
+Emitted while the state machine is waiting. All four are silent — they change the
+displayed state without speaking.
+
+| Code | Trigger | Emitted as |
+|---|---|---|
+| `ALERT_PERSISTENCE_PENDING` | A new decision has not yet held for `alert_persistence_frames` | silent `CLEAR` / `WATCH` |
+| `DIRECTION_CHANGE_PENDING` | A pending change while the current action is `MOVE_LEFT` or `MOVE_RIGHT` | `PAUSE_UNCLEAR` / `WARN` |
+| `RISK_DECAY_PENDING` | Decaying toward `CLEAR`, not yet `alert_clear_frames` | silent `CAUTION` / `WATCH` |
+| `RISK_HYSTERESIS_ACTIVE` | Evidence still above `risk_warn_exit` while decaying | silent `CAUTION` / `WATCH` |
+
+> A port that drops these four will look correct in a demo and fail the golden
+> vectors, because they are the difference between a system that flickers and a
+> system that holds its tongue until it knows.
+
+---
+
+## Appendix D — the COCO label list
+
+The 80 names used by stock YOLO COCO weights, for reference when deciding whether
+a spoken target can be answered from landmark memory (§14.1) or needs the
+locator:
+
+`person`, `bicycle`, `car`, `motorcycle`, `airplane`, `bus`, `train`, `truck`,
+`boat`, `traffic light`, `fire hydrant`, `stop sign`, `parking meter`, `bench`,
+`bird`, `cat`, `dog`, `horse`, `sheep`, `cow`, `elephant`, `bear`, `zebra`,
+`giraffe`, `backpack`, `umbrella`, `handbag`, `tie`, `suitcase`, `frisbee`,
+`skis`, `snowboard`, `sports ball`, `kite`, `baseball bat`, `baseball glove`,
+`skateboard`, `surfboard`, `tennis racket`, `bottle`, `wine glass`, `cup`,
+`fork`, `knife`, `spoon`, `bowl`, `banana`, `apple`, `sandwich`, `orange`,
+`broccoli`, `carrot`, `hot dog`, `pizza`, `donut`, `cake`, `chair`, `couch`,
+`potted plant`, `bed`, `dining table`, `toilet`, `tv`, `laptop`, `mouse`,
+`remote`, `keyboard`, `cell phone`, `microwave`, `oven`, `toaster`, `sink`,
+`refrigerator`, `book`, `clock`, `vase`, `scissors`, `teddy bear`, `hair drier`,
+`toothbrush`.
+
+"COCO 80" refers to this common model label list. The underlying COCO dataset's
+category identifiers are **not** a contiguous 0–79 sequence, so never index one
+by the other.
 
 ---
 
 ## Note on scope
 
-The models are the tractable part of this port: each has a listed, supported
-counterpart in Qualcomm's catalogue and a documented conversion path.
+The models are the tractable part of this migration: each has a listed, supported
+counterpart in Qualcomm's catalogue and a documented conversion path, and each
+has a gate in §6 that says what to do when the path does not hold.
 
 The behaviour is the hard part — knowing when to report uncertainty, refusing to
 convert weak evidence into a confident direction, and announcing degradation
-audibly. Those behaviours are what make the system usable by someone who cannot
-verify its output, and they are specified here rather than left to be
-rediscovered under time pressure.
+audibly. Those behaviours already exist, tested, in Python. The work is moving
+them to Kotlin **without changing them**, which is why §22 puts golden vectors
+before features and why every threshold in this document is quoted from the
+implementation rather than invented here.
+
+The most defensible build is not a rewrite. It is one detector invocation on the
+phone feeding an audited risk view and a full-COCO target memory, the existing
+safety logic ported under parity, the existing Kotlin client refined at one seam,
+and a laptop that keeps the dashboard without ever standing between the user and
+the ground in front of them.

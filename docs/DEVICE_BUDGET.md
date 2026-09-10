@@ -29,19 +29,19 @@ control.
 
 | Stage | Resident? | Footprint |
 |---|---|---|
-| Detection — YOLOv8n INT8 | **Always** | 120 – 180 MB |
-| Segmentation — small, INT8 | **Always** | 150 – 250 MB |
-| Track, spatial, risk, guidance | Always | < 20 MB, pure Kotlin |
+| Detection — YOLO11n, quantized | **Always** | 120 – 180 MB |
+| Segmentation — SegFormer-B0 ADE20K, quantized | **Always, if its gate passes** | 150 – 250 MB |
+| Track, spatial, risk, guidance, target memory | Always | < 20 MB, pure Kotlin |
 | **Walk loop total** | | **~300 – 450 MB** |
 | OCR | On demand | 150 – 250 MB peak |
-| VLM — Qwen3-VL-2B INT4 | On demand | 2.0 – 2.7 GB peak |
-| Reasoning LLM — Qwen3-4B INT4 | **Stretch only** | 3.0 – 3.5 GB peak |
+| Phone VLM — Qwen3-VL-2B INT4, optional | On demand | 2.0 – 2.7 GB peak |
+| Reasoning LLM — Qwen3-4B INT4 | **Not on device** | 3.0 – 3.5 GB peak |
 
 The walk loop is comfortable. Everything else is a spike.
 
 ## The rule that keeps it safe
 
-> **The VLM and the reasoning LLM are never co-resident, with each other or with
+> **No two on-demand models are ever co-resident, with each other or with
 > anything else large.** On 12 GB, `2.5 GB + 3.2 GB` exceeds the ceiling and the
 > process dies.
 
@@ -50,6 +50,11 @@ one inference → **unload** → *then* return the result.
 
 Returning before the unload leaves a window where a second request doubles the
 footprint.
+
+Dropping a reference is not the same as freeing native memory. A native runtime
+may retain arenas, contexts, and graph memory after the object is gone. Call the
+runtime's explicit close API, then **measure reclaimed memory**. A runtime that
+cannot be proved to release belongs in a separate killable process.
 
 `SAFETY_MARGIN_BYTES = 800 MB`, and it is not tuned down to make a demo work. A
 refused Scene query is a minor disappointment; a killed process mid-walk is a
@@ -77,8 +82,16 @@ On a 12 GB device it may simply be unavailable.
 
 | Outcome | Response |
 |---|---|
-| Initialises, NPU backend | Use it for OCR and the VLM |
-| Initialises, CPU only | Do not use it. CPU inference in the walk loop is a thermal and latency disaster. |
-| Does not initialise | AI Hub / QNN only. The VLM drops to a stretch item. |
+| Initialises, NPU backend | Candidate for OCR and the optional phone VLM |
+| Initialises, CPU only | Do not use it. CPU inference anywhere near the walk loop is a thermal and latency disaster. |
+| Does not initialise | AI Hub / QNN only. The phone VLM drops to optional, with the laptop snapshot locator as its fallback. |
 
-Test this in the first two hours. It reshapes the rest of the plan.
+Test this before designing around it. It reshapes the rest of the plan.
+
+## What the budget does not include
+
+The optional locator fallback runs on the laptop, not the phone, and costs the
+phone nothing. It is *laptop-assisted target localization* — an explicit single
+snapshot in, one normalized box out — and it is never part of the on-device
+claim. Full reasoning in
+[`../ARCHITECTURE.md` §6.4](../ARCHITECTURE.md#64-the-locator-and-scene-vlm--optional-proof-never-a-prerequisite).
