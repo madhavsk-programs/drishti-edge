@@ -911,7 +911,7 @@ reported fallback if guarded session creation fails on another device.
 | Estimated free RAM (**MEASURE 4.1**) | 5.5 – 6.5 GB | 9 – 10 GB |
 | Class B ceiling after the 800 MB margin | ~4.5 GB | ~8 GB |
 | OCR / Explore Mode | ML Kit | ML Kit |
-| **Scene Mode** | Rung 3 only | **Rung 3 by default; LFM2.5-VL-1.6B (1.31 GB) or Gemma 3n E4B (4.4 GB) as the E10 stretch — see [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md). CPU, not NPU** |
+| **Scene Mode** | Rung 3 only | **Rung 3 by default; Qwen3-VL-2B (1.55 GB) or Qwen3-VL-4B (2.95 GB) as the E10 stretch — see [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md). CPU, not NPU** |
 | Demo claim | Unchanged | Unchanged, plus "it can also answer a spoken question about the scene, offline" |
 
 > **The safety path is byte-identical on both variants.** Nothing on the
@@ -926,11 +926,15 @@ Pick **one**. Do not stage both into the APK.
 
 | Option | Size | Runtime | Notes |
 |---|---|---|---|
-| **Gemma 3n E2B** `.litertlm` | ~3.1 GB | LiteRT-LM / MediaPipe `tasks-genai` | Safest. Fits 12 GB too, if E1–E9 finished early. [google/gemma-3n-E2B-it-litert-lm](https://huggingface.co/google/gemma-3n-E2B-it-litert-lm) |
-| **Gemma 3n E4B** `.litertlm` | ~4.4 GB | Same | The "4B-class VL model" case. Comfortable at 16 GB, marginal at 12 GB. [google/gemma-3n-E4B-it-litert-lm](https://huggingface.co/google/gemma-3n-E4B-it-litert-lm) |
+| **Qwen3-VL-2B-Instruct** Q4_K_M + mmproj Q8_0 | **1.55 GB** | llama.cpp `libmtmd` | Tier 1. Fits 12 GB comfortably. [Qwen/Qwen3-VL-2B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF) |
+| **Qwen3-VL-4B-Instruct** Q4_K_M + mmproj Q8_0 | **2.95 GB** | Same | Tier 2, the "4B-class VL model" case. What 16 GB unlocks. [Qwen/Qwen3-VL-4B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF) |
 
-Both repos are **licence-gated on Hugging Face** — accept the terms and download
-during Part 0 (P0.3.6), not at T+20 h.
+Both are **Apache-2.0 and ungated** — plain `curl`, no browser step, no account.
+Both run on the **same** `libmtmd` build, so "pick one" is a staging decision
+rather than a second integration. Gemma 3n held these rows until 12 September
+2026; [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §2.1 records why it
+lost them and why the original Qwen3-VL rejection did not mean what it appeared
+to mean.
 
 > **MUST:** whichever is staged, it is Class B under `ARCHITECTURE.md` §5.1 —
 > free-memory check, load, **one** inference, unload, verify reclaim, then
@@ -939,8 +943,11 @@ during Part 0 (P0.3.6), not at T+20 h.
 
 > **MEASURE 4.1** — on the loaner, after a reboot with everything closed, record
 > `ActivityManager.MemoryInfo.availMem`.
-> **Decision rule:** ≥ 8 GB free → E10 may attempt E4B. 5–8 GB free → E2B only.
-> < 5 GB free → rung 3 only, no phone VLM, and say so if asked.
+> **Decision rule:** ≥ 4.5 GB free → E10 may attempt Qwen3-VL-4B. 2.5–4.5 GB
+> free → Qwen3-VL-2B only. < 2.5 GB free → rung 3 only, no phone VLM, and say so
+> if asked. See [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §1 for how each
+> threshold is built up from model size, the 800 MB margin, the KV cache and the
+> decoded image.
 
 ### 4.2 What this settles
 
@@ -1463,14 +1470,17 @@ to stage or fetch when the feature runs. Added and verified in
 
 ### P0.3.6 — VLM, 16 GB stretch only
 
-Both repos are **licence-gated**. Accept the terms on Hugging Face in a browser
-now, then download. Do not leave this to T+20 h.
+All three are **Apache-2.0 or open, and ungated** — plain `curl`, no browser
+step. The exact commands are in
+[`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §6.
 
-- <https://huggingface.co/google/gemma-3n-E2B-it-litert-lm> — ~3.1 GB
-- <https://huggingface.co/google/gemma-3n-E4B-it-litert-lm> — ~4.4 GB
+- <https://huggingface.co/LiquidAI/LFM2.5-VL-450M-GGUF> — 0.33 GB, tier B bring-up
+- <https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF> — 1.55 GB, tier 1
+- <https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF> — 2.95 GB, tier 2
 
-Stage both to `models/staging/vlm/`. You will push exactly one to the phone,
-after the variant is known.
+Stage all three to `models/staging/vlm/`. They share one `libmtmd` build, so
+staging costs disk and nothing else; you push exactly one pair to the phone once
+the measurements are in.
 
 ### P0.3.7 — EasyOCR, stretch only
 
@@ -2503,17 +2513,17 @@ Stage all of these during P0.3. **MUST** record every SHA-256 in
 | 6 | `segformer_base-qnn_dlc-w8a16.zip` | [S3](https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/segformer_base/releases/v0.62.1/segformer_base-qnn_dlc-w8a16.zip) | ~5 MB | Alternative runtime fallback |
 | 7 | `ade20k_config.json` | `entire-old-codebase/models/segmentation/segformer-b0-ade20k/config.json` | 8 KB | **Required.** The 150-entry `id2label` |
 | 8 | `easyocr-onnx-w8a8.zip` | [S3](https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/easyocr/releases/v0.62.1/easyocr-onnx-w8a8.zip) | ~25 MB | Stretch only |
-| 9 | **`LFM2.5-VL-1.6B-Q4_K_M.gguf`** + `mmproj-...-Q8_0.gguf` | [HF, open](https://huggingface.co/LiquidAI/LFM2.5-VL-1.6B-GGUF) | 731 MB + 583 MB | **Tier 1 Scene model.** See [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) |
-| 10 | `LFM2.5-VL-450M-Q4_K_M.gguf` + mmproj | [HF, open](https://huggingface.co/LiquidAI/LFM2.5-VL-450M-GGUF) | 229 MB + 103 MB | Tier-2 fallback. Costs nothing to stage |
-| 11 | `gemma-3n-E2B-it.litertlm` | [HF, gated](https://huggingface.co/google/gemma-3n-E2B-it-litert-lm) | ~3.1 GB | 16 GB stretch |
-| 12 | `gemma-3n-E4B-it.litertlm` | [HF, gated](https://huggingface.co/google/gemma-3n-E4B-it-litert-lm) | ~4.4 GB | 16 GB stretch |
+| 9 | `LFM2.5-VL-450M-Q4_K_M.gguf` + mmproj Q8_0 | [HF, open](https://huggingface.co/LiquidAI/LFM2.5-VL-450M-GGUF) | 229 MB + 103 MB | **Tier B.** Bring-up only — proves the Class-B lifecycle against a model too small to be the suspect |
+| 10 | **`Qwen3VL-2B-Instruct-Q4_K_M.gguf`** + mmproj Q8_0 | [HF, Apache-2.0](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF) | 1,107 MB + 445 MB | **Tier 1 Scene model.** See [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) |
+| 11 | **`Qwen3VL-4B-Instruct-Q4_K_M.gguf`** + mmproj Q8_0 | [HF, Apache-2.0](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF) | 2,497 MB + 454 MB | **Tier 2.** 16 GB stretch |
 
 **Not used, and why:**
 
 | Rejected | Reason |
 |---|---|
 | NexaSDK | Documented 16 GB Android floor; every capability reachable another way without the gamble |
-| Qwen3-VL-2B / 4B on NPU | AI Hub mobile deployment is not reachable in an event window (§2.4) |
+| Qwen3-VL-2B / 4B **on NPU** | AI Hub mobile deployment is not reachable in an event window (§2.4). Unchanged — but note tiers 1 and 2 run these models on the **CPU** via llama.cpp, which this row never excluded. See [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §2.1 |
+| Gemma 3n E2B / E4B | Superseded 12 September 2026: bigger, licence-gated, weaker at text in images, and the only candidate that needed a second inference runtime |
 | SegFormer Cityscapes | Deletes indoor floor/wall/door/stairs semantics. Forbidden by `ARCHITECTURE.md` §6.2 |
 | YOLOv8 / YOLOX | YOLO11 passes at 2.27 ms. No measured reason to switch, and switching costs a post-processing review |
 | Moondream2 laptop locator | 6 GB card, and rung 3 covers the demo beat |

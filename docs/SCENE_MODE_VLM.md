@@ -20,7 +20,7 @@
 | Headroom, post-reboot | ~5.5 – 6.5 GB | **~9 – 10 GB** |
 | Headroom, realistic daily-use state | ~3.6 GB *(measured)* | **~7 GB** *(estimate — MEASURE it)* |
 | Class B budget after the 800 MB margin | ~2.8 GB | **~6 GB** |
-| Largest safe Scene model | LFM2.5-VL-1.6B (1.3 GB) | **Gemma 3n E4B (4.4 GB)** |
+| Largest safe Scene model | Qwen3-VL-2B (1.55 GB) | **Qwen3-VL-4B (2.95 GB)** |
 
 Everything else — detection, segmentation, tracking, corridor geometry, the risk
 cascade, speech, spatial audio — is **byte-identical** on both. The extra 4 GB
@@ -31,8 +31,11 @@ touches exactly one capability.
 > 12 GB device in daily use the figure was 3.6 GB against a 5.5 GB post-reboot
 > expectation. Assume a comparable gap here.
 >
-> **Decision rule:** ≥ 6 GB free → tier 2 (E4B). 3 – 6 GB free → tier 1
-> (LFM2.5-VL-1.6B). < 3 GB free → tier 0, no phone VLM, say so plainly if asked.
+> **Decision rule:** ≥ 4.5 GB free → tier 2 (Qwen3-VL-4B, 2.95 GB). 2.5 – 4.5 GB
+> free → tier 1 (Qwen3-VL-2B, 1.55 GB). < 2.5 GB free → tier 0, no phone VLM,
+> say so plainly if asked. Each threshold is the model's resident size plus the
+> fixed 800 MB `SAFETY_MARGIN_BYTES` plus room for the KV cache and the decoded
+> image; it is not the model size alone.
 
 ---
 
@@ -41,9 +44,19 @@ touches exactly one capability.
 | Tier | Model | Total size | Runtime | When |
 |---|---|---|---|---|
 | **0** | **Detection-derived scene summary — no VLM** | 0 | Kotlin | **Default. Always available. Cannot fail.** |
-| **1** | **LFM2.5-VL-1.6B** Q4_K_M + mmproj Q8_0 | **1.31 GB** | llama.cpp `libmtmd` | The safe real VLM |
-| 2 | Gemma 3n E4B `.litertlm` | ~4.4 GB | LiteRT-LM / MediaPipe | What 16 GB unlocks |
-| 3 | LFM2.5-VL-450M Q4_K_M + mmproj | 0.33 GB | llama.cpp | If tier 1 is too slow |
+| **B** | **LFM2.5-VL-450M** Q4_K_M + mmproj Q8_0 | **0.33 GB** | llama.cpp `libmtmd` | **Bring-up only** — proves the lifecycle, not the product |
+| **1** | **Qwen3-VL-2B-Instruct** Q4_K_M + mmproj Q8_0 | **1.55 GB** | llama.cpp `libmtmd` | The safe real VLM |
+| **2** | **Qwen3-VL-4B-Instruct** Q4_K_M + mmproj Q8_0 | **2.95 GB** | llama.cpp `libmtmd` | What 16 GB unlocks |
+
+**One runtime, one licence, across every tier.** That is the point of this
+ladder. Tiers B, 1 and 2 differ only by which two files are on disk, so the
+choice between them is a *measurement*, not an engineering commitment — build
+`libmtmd` once, then swap GGUFs and time each.
+
+> **Decision rule, revised.** Free memory still gates which tier may load
+> (§1), but **measured latency picks the default.** Bring up tier B first to
+> prove the Class-B lifecycle against a model small enough that nothing else can
+> be the suspect. Then measure tier 1 and tier 2 and let the numbers choose.
 
 > **Tier 0 is not a failure state.** *"A person ahead on the left, a chair to the
 > right, a doorway centre"* composed from the detector's existing output is
@@ -51,26 +64,57 @@ touches exactly one capability.
 > (`ARCHITECTURE.md` §6.4 rung 3). **It ships regardless.** Tiers 1–3 are
 > additive, never load-bearing.
 
-### 2.1 Why tier 1 before tier 2, even at 16 GB
+### 2.1 Why Gemma 3n was dropped, and Qwen3-VL put in its place
 
-Tier 2 is the bigger model, but tier 1 is the better bet:
+An earlier revision of this document had **Gemma 3n E4B** at tier 2 and listed
+"Qwen3-VL 2B / 4B" under *Ruled out*. That was re-examined on 12 September 2026
+and reversed. The reversal matters more than the models, because **the original
+rejection did not say what it appeared to say.**
 
-- **1.31 GB fits any plausible memory state**, including the pessimistic one that
-  MEASURE VLM.1 is likely to return.
-- **Liquid AI built LFM2-VL for on-device edge inference** rather than shrinking a
-  server model, and it is the most-downloaded GGUF VLM family by a wide margin.
-- **It degrades to the 450M sibling with no code change** — identical loader,
-  identical prompt path.
+`ARCHITECTURE.md` §6.4 excluded Qwen3-VL-4B because its AI Hub page listed
+8 Elite Gen 5 as supported while also stating *"not supported on any Mobile
+chipset."* `BUILD_PLAN.md` §2.3 then **overturned that reasoning**: the banner is
+a page-filter artifact that appears on `segformer_base` too, and believing it
+"nearly cost this build its segmentation capability." What survived was §2.4's
+narrower finding — *no VLM runs on the **NPU** in this build* — a rejection of
+the **Qualcomm AI Hub deployment route**, not of the model. The *Ruled out* row
+even said so: "Qwen3-VL 2B / 4B **on NPU**."
 
-Attempt tier 2 only if tier 1 works *and* every gate before it is green.
+Scene Mode is CPU-side llama.cpp, one-shot, and explicitly outside the NPU claim
+(§7). The AI Hub objection never applied to it. **Qwen3-VL had simply never been
+evaluated as a GGUF.** Evaluated on that footing it wins on four counts:
+
+| | Gemma 3n E4B | **Qwen3-VL-4B** |
+|---|---|---|
+| Size | 4.4 GB | **2.95 GB** |
+| Runtime | LiteRT-LM / MediaPipe — **a second integration** | **llama.cpp `libmtmd`, same as every other tier** |
+| Licence | Google gated; browser acceptance before download | **Apache-2.0, ungated** |
+| Text in images | Not its strength | **Its strongest capability** |
+
+The runtime row is decisive. Gemma was the *only* thing forcing a second
+inference stack into this build; removing it makes the whole ladder a file
+swap. The licence row is not academic either — a browser-gated download is the
+exact failure mode that cost this project hours on Qualcomm Software Center.
+
+And the last row is the one that matches the requirement: Scene Mode must answer
+**semantic questions about text it can see** (§5), not merely caption. That is
+what Qwen3-VL is best at and what Gemma 3n is weakest at.
+
+> **Still unmeasured, and not to be asserted:** decode speed for a 4B Q4_K_M
+> with a vision prefill on this phone's CPU. No public benchmark covers it. The
+> nearest datapoint is a 3B Q4_K_M at ~8 tok/s on a server CPU, which would put a
+> one-shot answer in the 10–20 s range — possibly too slow even for an explicit
+> gesture. **Measure it before claiming it.** This is exactly why tier B exists
+> and why the tiers share a runtime.
 
 ### 2.2 Ruled out
 
 | Model | Why not |
 |---|---|
 | Moondream2 on the phone | No quantized GGUF published — f16 only, **3.75 GB** with the projector. Self-quantizing is an hour on the critical path for a narrative benefit |
-| Gemma 3n E2B | Strictly dominated: same runtime as E4B, less capable, and 16 GB has room for E4B |
-| Qwen3-VL 2B / 4B on NPU | AI Hub mobile deployment is not reachable in an event window (`BUILD_PLAN.md` §2.4) |
+| Gemma 3n E2B / E4B | Superseded — see §2.1. Bigger, gated, weaker at text, and the only tier that needed a second runtime |
+| LFM2.5-VL-1.6B | Not wrong, just dominated at the same size class: Qwen3-VL-2B is 1.55 GB against 1.31 GB, Apache-2.0 against the LFM Open Licence, and far stronger on text in images. The 450M sibling is kept as tier B because small-and-boring is what a bring-up rung is for |
+| Qwen3-VL 2B / 4B **on the NPU** | Unchanged and still true: AI Hub mobile deployment is not reachable in an event window (`BUILD_PLAN.md` §2.4). Tiers 1 and 2 run on the **CPU** and make no NPU claim |
 
 ---
 
@@ -79,12 +123,18 @@ Attempt tier 2 only if tier 1 works *and* every gate before it is green.
 A vision model needs **two** files — the language model and the `mmproj` vision
 projector. People routinely budget only the first.
 
-| Model | Text GGUF | mmproj | **Total** |
-|---|---|---|---|
-| LFM2.5-VL-1.6B Q4_K_M + Q8_0 | 731 MB | 583 MB | **1.31 GB** |
-| LFM2.5-VL-450M Q4_K_M + Q8_0 | 229 MB | 103 MB | **0.33 GB** |
-| SmolVLM2-500M Q8_0 + Q8_0 | 437 MB | 109 MB | 0.55 GB |
-| Moondream2 (f16 only) | 2,840 MB | 910 MB | 3.75 GB |
+| Model | Text GGUF | mmproj | **Total** | Licence |
+|---|---|---|---|---|
+| **Qwen3-VL-4B-Instruct** Q4_K_M + Q8_0 | 2,497 MB | 454 MB | **2.95 GB** | Apache-2.0 |
+| **Qwen3-VL-2B-Instruct** Q4_K_M + Q8_0 | 1,107 MB | 445 MB | **1.55 GB** | Apache-2.0 |
+| LFM2.5-VL-1.6B Q4_K_M + Q8_0 | 731 MB | 583 MB | **1.31 GB** | LFM Open |
+| **LFM2.5-VL-450M** Q4_K_M + Q8_0 | 229 MB | 103 MB | **0.33 GB** | LFM Open |
+| SmolVLM2-500M Q8_0 + Q8_0 | 437 MB | 109 MB | 0.55 GB | Apache-2.0 |
+| Moondream2 (f16 only) | 2,840 MB | 910 MB | 3.75 GB | — |
+
+Note how little the `mmproj` differs between Qwen3-VL 2B and 4B (445 vs 454 MB):
+they share a vision tower, so moving between tiers 1 and 2 costs ~1.4 GB of
+language model and nothing else.
 
 Sources: [LiquidAI/LFM2.5-VL-1.6B-GGUF](https://huggingface.co/LiquidAI/LFM2.5-VL-1.6B-GGUF),
 [LiquidAI/LFM2.5-VL-450M-GGUF](https://huggingface.co/LiquidAI/LFM2.5-VL-450M-GGUF),
@@ -147,21 +197,29 @@ return the result to the caller
 
 ## 6. Pre-staging
 
-Tier 1 is public — no licence gate, no account:
+**Every tier is public — no licence gate, no account, no browser step.** That is
+a deliberate property of this ladder, not a coincidence; see §2.1.
 
 ```bash
-mkdir -p models/staging/vlm && curl -L -o models/staging/vlm/lfm25-vl-1.6b-q4km.gguf "https://huggingface.co/LiquidAI/LFM2.5-VL-1.6B-GGUF/resolve/main/LFM2.5-VL-1.6B-Q4_K_M.gguf" && curl -L -o models/staging/vlm/lfm25-vl-1.6b-mmproj-q8.gguf "https://huggingface.co/LiquidAI/LFM2.5-VL-1.6B-GGUF/resolve/main/mmproj-LFM2.5-VL-1.6b-Q8_0.gguf"
+mkdir -p models/staging/vlm
+# Tier B — bring-up
+curl -L -o models/staging/vlm/lfm25-vl-450m-q4km.gguf "https://huggingface.co/LiquidAI/LFM2.5-VL-450M-GGUF/resolve/main/LFM2.5-VL-450M-Q4_K_M.gguf"
+curl -L -o models/staging/vlm/lfm25-vl-450m-mmproj-q8.gguf "https://huggingface.co/LiquidAI/LFM2.5-VL-450M-GGUF/resolve/main/mmproj-LFM2.5-VL-450M-Q8_0.gguf"
+# Tier 1
+curl -L -o models/staging/vlm/qwen3vl-2b-q4km.gguf "https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF/resolve/main/Qwen3VL-2B-Instruct-Q4_K_M.gguf"
+curl -L -o models/staging/vlm/qwen3vl-2b-mmproj-q8.gguf "https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-2B-Instruct-Q8_0.gguf"
+# Tier 2
+curl -L -o models/staging/vlm/qwen3vl-4b-q4km.gguf "https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF/resolve/main/Qwen3VL-4B-Instruct-Q4_K_M.gguf"
+curl -L -o models/staging/vlm/qwen3vl-4b-mmproj-q8.gguf "https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF/resolve/main/mmproj-Qwen3VL-4B-Instruct-Q8_0.gguf"
 ```
-
-Tier 2 is **licence-gated** — accept the terms in a browser first:
-[google/gemma-3n-E4B-it-litert-lm](https://huggingface.co/google/gemma-3n-E4B-it-litert-lm).
 
 Record every SHA-256 in `models/staging/MANIFEST.sha256` (`ARCHITECTURE.md` §7.4).
 
-> **Licence check.** LFM2.5-VL is published under the **LFM Open License**, not
-> Apache-2.0. Read it and be able to state the terms. SmolVLM2 is Apache-2.0 and
-> is the clean-licence fallback if the LFM terms are a problem for how the work
-> is presented.
+> **Licence check.** Qwen3-VL is **Apache-2.0** — state that plainly if asked.
+> LFM2.5-VL, used only for the tier B bring-up, is under the **LFM Open
+> License**, not Apache-2.0; read it before quoting it. If tier B ever becomes
+> something we ship rather than something we debug with, SmolVLM2-500M is the
+> Apache-2.0 replacement at that size.
 
 ---
 
