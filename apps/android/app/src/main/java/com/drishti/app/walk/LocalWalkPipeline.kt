@@ -1,7 +1,10 @@
 package com.drishti.app.walk
 
+import android.util.Log
 import com.drishti.app.config.PipelineSettings
 import com.drishti.app.inference.InferenceBackend
+import com.drishti.app.inference.Letterbox
+import com.drishti.app.inference.SegFormerSegmenter
 import com.drishti.app.inference.OnDeviceDetector
 import com.drishti.app.inference.OrientedFrame
 import com.drishti.app.net.DetectionResult
@@ -22,6 +25,8 @@ import com.drishti.app.perception.SessionTracker
 import com.drishti.app.risk.AlertStateMachine
 import com.drishti.app.risk.scoreTracks
 import com.drishti.app.risk.selectAction
+import com.drishti.app.spatial.SurfaceEvidence
+import com.drishti.app.spatial.SurfaceEvidenceBuilder
 import com.drishti.app.spatial.analyzeCorridors
 import com.drishti.app.net.CorridorCosts as CorridorCostsDto
 import java.time.Instant
@@ -40,7 +45,18 @@ import java.time.Instant
 class LocalWalkPipeline(
     private val detector: OnDeviceDetector,
     private val settings: PipelineSettings = PipelineSettings(),
+    private val segmenter: SegFormerSegmenter? = null,
+    /**
+     * Segmentation runs every Nth frame. Surfaces change far more slowly than
+     * the obstacles in front of them, so reusing the last map between runs
+     * costs little accuracy and keeps detection at full rate. On the CPU rung
+     * segmentation is ~10x the cost of detection, so this is what keeps the
+     * guidance cadence usable (ARCHITECTURE.md §17.3).
+     */
+    private val segmentationStride: Int = 1,
 ) {
+    private var lastSurfaces: SurfaceEvidence? = null
+    private var lastSegmentationMillis: Double? = null
     private val tracker = SessionTracker(
         iouThreshold = settings.trackIouThreshold,
         centreDistanceThreshold = settings.trackCentreDistanceThreshold,
@@ -73,10 +89,12 @@ class LocalWalkPipeline(
         )
         val trackingEnd = System.nanoTime()
 
-        // No segmentation yet: surfaces are absent rather than assumed clear, so
-        // every corridor reads UNCERTAIN and the cascade answers PAUSE_UNCLEAR
-        // instead of inventing a direction (docs/SAFETY_RULES.md).
-        val corridor = analyzeCorridors(tracked, settings, surfaces = null)
+        // Surfaces are absent rather than assumed clear when segmentation is
+        // unavailable: every corridor then reads UNCERTAIN and the cascade
+        // answers PAUSE_UNCLEAR instead of inventing a direction
+        // (docs/SAFETY_RULES.md).
+        val surfaces = updateSurfaces(frame)
+        val corridor = analyzeCorridors(tracked, settings, surfaces = surfaces)
         val spatialEnd = System.nanoTime()
 
         val assessments = scoreTracks(corridor.tracks, settings, riskSensitivity)
@@ -172,21 +190,55 @@ class LocalWalkPipeline(
             timings = StageTimings(
                 decodeMs = outcome.stats.preprocessMillis,
                 detectionMs = outcome.stats.inferenceMillis,
-                segmentationMs = null,
+                segmentationMs = lastSegmentationMillis,
                 trackingDepthMs = (trackingEnd - started) / 1_000_000.0,
                 spatialMs = (spatialEnd - trackingEnd) / 1_000_000.0,
                 riskMs = (riskEnd - spatialEnd) / 1_000_000.0,
                 totalMs = totalMs,
             ),
-            // Segmentation is genuinely absent, and the UI says so rather than
-            // presenting surface-blind guidance as fully informed.
-            degradedModules = listOf("segmentation"),
+            // Says so only when it is actually true, so the banner stays
+            // meaningful rather than becoming permanent furniture.
+            degradedModules = if (surfaces == null) listOf("segmentation") else emptyList(),
         )
     }
 
-    fun close() = detector.close()
+    /**
+     * Re-segment on stride frames, otherwise reuse the last map. Returns null
+     * only when segmentation is genuinely unavailable — never a zeroed map,
+     * which would read downstream as "measured, and clear".
+     */
+    private fun updateSurfaces(frame: OrientedFrame): SurfaceEvidence? {
+        val active = segmenter ?: return null
+        val due = lastSurfaces == null || frame.frameId % segmentationStride == 0
+        if (!due) return lastSurfaces
+        return try {
+            val segmentation = active.segment(frame)
+            lastSegmentationMillis = segmentation.inferenceMillis
+            val letterbox = Letterbox(
+                frame.width,
+                frame.height,
+                segmentation.width * SEGMENTATION_OUTPUT_STRIDE,
+                segmentation.height * SEGMENTATION_OUTPUT_STRIDE,
+            )
+            SurfaceEvidenceBuilder.build(segmentation, letterbox, settings)
+                .also { lastSurfaces = it }
+        } catch (exc: Throwable) {
+            Log.e(TAG, "segmentation failed; corridors fall back to UNCERTAIN", exc)
+            lastSurfaces = null
+            null
+        }
+    }
+
+    fun close() {
+        detector.close()
+        segmenter?.close()
+    }
 
     private companion object {
+        /** SegFormer emits at 1/4 of its input resolution (512 -> 128). */
+        const val SEGMENTATION_OUTPUT_STRIDE = 4
+
+        const val TAG = "LocalWalkPipeline"
         const val SCHEMA_VERSION = "1.0.0"
         const val COORDINATE_SPACE = "ORIENTED_CAPTURE_NORMALIZED"
         const val OVERLAY_VALID_MS = 400L

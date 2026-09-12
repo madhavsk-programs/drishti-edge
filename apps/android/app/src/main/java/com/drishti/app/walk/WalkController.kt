@@ -11,6 +11,7 @@ import com.drishti.app.explore.ExploreController
 import com.drishti.app.inference.InferenceBackend
 import com.drishti.app.inference.OrientedFrame
 import com.drishti.app.inference.OrtYoloDetector
+import com.drishti.app.inference.SegFormerSegmenter
 import com.drishti.app.inference.YuvToRgb
 import com.drishti.app.feedback.AudioFocusManager
 import com.drishti.app.feedback.GuidanceStrings
@@ -208,8 +209,19 @@ class WalkController(
                 return@withLock fail(detector.detail)
             }
             Log.i(TAG, "detector ready on ${detector.backend}: ${detector.detail}")
+            val segmenter = SegFormerSegmenter.create(app)
+            if (segmenter == null) {
+                Log.w(TAG, "segmentation unavailable; guidance will PAUSE on surfaces")
+            }
             localPipeline?.close()
-            localPipeline = LocalWalkPipeline(detector, PipelineSettings())
+            localPipeline = LocalWalkPipeline(
+                detector = detector,
+                settings = PipelineSettings(),
+                segmenter = segmenter,
+                // Detection every frame, surfaces every 3rd. Surfaces change far
+                // more slowly than the obstacles standing on them.
+                segmentationStride = 3,
+            )
 
             freshness.reset()
             gate.reset()
