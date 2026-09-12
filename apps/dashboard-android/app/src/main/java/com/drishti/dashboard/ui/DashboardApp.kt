@@ -53,9 +53,11 @@ import com.drishti.dashboard.ui.theme.Hairline
 import com.drishti.dashboard.ui.theme.HelpTone
 import com.drishti.dashboard.ui.theme.IndigoTone
 import com.drishti.dashboard.ui.theme.InkMuted
+import com.drishti.dashboard.ui.theme.InkStrong
 import com.drishti.dashboard.ui.theme.Paper
 import com.drishti.dashboard.ui.theme.Pill
 import com.drishti.dashboard.ui.theme.Tone
+import com.drishti.dashboard.ui.theme.WordmarkStyle
 import com.drishti.dashboard.ui.theme.avatarToneFor
 
 /**
@@ -133,8 +135,8 @@ private fun Masthead() {
         ) {
             Text(
                 text = "DRISHTI Monitor",
-                style = MaterialTheme.typography.headlineMedium,
-                color = IndigoTone.ink,
+                style = WordmarkStyle,
+                color = InkStrong,
                 maxLines = 1,
             )
         }

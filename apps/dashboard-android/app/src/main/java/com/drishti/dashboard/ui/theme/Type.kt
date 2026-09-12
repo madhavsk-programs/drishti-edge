@@ -11,7 +11,7 @@ import androidx.compose.ui.unit.sp
 import com.drishti.dashboard.R
 
 /**
- * Two families, bundled rather than downloaded.
+ * Three families, bundled rather than downloaded.
  *
  * **Fraunces** for anything that names a thing — a person, a section, a count.
  * It is a soft humanist serif with real optical-size drawing, and it makes the
@@ -21,7 +21,12 @@ import com.drishti.dashboard.R
  * stays legible at the sizes this app uses and, unlike the platform default,
  * has a true 800 weight for the numbers that matter.
  *
- * Both are OFL and shipped as static instances in `res/font`; nothing here
+ * **Bricolage Grotesque** for exactly one string: the wordmark in the
+ * masthead. A single ExtraBold instance at its 96pt optical size — a face
+ * with more personality than the two workhorses, used once, so it reads as a
+ * mark rather than as a third text style competing with them.
+ *
+ * All are OFL and shipped as static instances in `res/font`; nothing here
  * needs Play Services, a font provider, or a network, so the type looks the
  * same on a field phone with no SIM as it does on a demo bench.
  *
@@ -34,6 +39,10 @@ val Fraunces = FontFamily(
     Font(R.font.fraunces_medium, FontWeight.Medium),
     Font(R.font.fraunces_semibold, FontWeight.SemiBold),
     Font(R.font.fraunces_bold, FontWeight.Bold),
+)
+
+val Bricolage = FontFamily(
+    Font(R.font.bricolage_extrabold, FontWeight.ExtraBold),
 )
 
 val Jakarta = FontFamily(
@@ -150,4 +159,13 @@ val NumeralStyle = TextStyle(
     lineHeight = 44.sp,
     letterSpacing = (-0.02).em,
     textAlign = TextAlign.Start,
+)
+
+/** The masthead wordmark. Black, and sized to keep the bar exactly as tall as before. */
+val WordmarkStyle = TextStyle(
+    fontFamily = Bricolage,
+    fontWeight = FontWeight.ExtraBold,
+    fontSize = 25.sp,
+    lineHeight = 29.sp,
+    letterSpacing = (-0.03).em,
 )

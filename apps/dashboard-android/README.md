@@ -73,7 +73,7 @@ Light, warm, and larger than an app of this kind usually is: 18sp body, 64dp
 actions, 122dp count tiles, 20–26dp radii. It is read at arm's length, often by
 someone standing up, often one-handed while holding a phone to their ear.
 
-**Type** — two bundled OFL families in `res/font`, no downloadable-font
+**Type** — three bundled OFL families in `res/font`, no downloadable-font
 provider and no network, so a field phone with no SIM renders the same as a
 demo bench:
 
@@ -81,8 +81,10 @@ demo bench:
   section, a count. A soft humanist serif; it makes the screen read like a duty
   sheet rather than a console.
 - *Plus Jakarta Sans* for everything else, 400–800.
+- *Bricolage Grotesque* ExtraBold for exactly one string — the wordmark in the
+  masthead, set in black. Used once so it reads as a mark, not a third style.
 
-Both are OFL; the licence text is bundled in
+All three are OFL; the licence text is bundled in
 [`LICENSES-FONTS.md`](LICENSES-FONTS.md).
 
 **Colour** — eight families in `ui/theme/Color.kt`, not one brand colour at
