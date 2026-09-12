@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "drishti_settings")
+private const val LEGACY_EVENT_BACKEND_URL = "http://10.111.36.200:8000"
 
 /** Everything the user can tune. Persisted locally; never leaves the device. */
 data class DrishtiSettings(
@@ -29,7 +30,9 @@ data class DrishtiSettings(
     val hazardMapY: Float = 0.5f,
 ) {
     companion object {
-        const val DEFAULT_BACKEND_URL = "http://10.111.36.200:8000"
+        // Current event Wi-Fi. This remains editable in Settings because a
+        // laptop's private address changes whenever the network changes.
+        const val DEFAULT_BACKEND_URL = "http://172.26.252.175:8000"
     }
 }
 
@@ -51,7 +54,9 @@ class SettingsStore(private val context: Context) {
 
     val settings: Flow<DrishtiSettings> = context.dataStore.data.map { p ->
         DrishtiSettings(
-            backendUrl = p[Keys.backendUrl] ?: DrishtiSettings.DEFAULT_BACKEND_URL,
+            backendUrl = p[Keys.backendUrl]
+                ?.takeUnless { it == LEGACY_EVENT_BACKEND_URL }
+                ?: DrishtiSettings.DEFAULT_BACKEND_URL,
             language = SpokenLanguage.fromTag(p[Keys.language]),
             hapticsEnabled = p[Keys.haptics] ?: true,
             spatialAudioEnabled = p[Keys.spatialAudio] ?: true,

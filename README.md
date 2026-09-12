@@ -6,9 +6,8 @@ The camera reads the ground ahead. The user hears what matters — an obstacle
 closing in, a level change or a wall ahead, which side the ground is open.
 
 The guidance loop runs entirely on the phone. No cloud, no server, and no network
-call between the camera and the user's ear. A laptop coordinator keeps the
-dashboard and the hazard database; losing it costs the dashboard and nothing
-else.
+call between the camera and the user's ear. A laptop coordinator carries the
+optional live Monitor feed; losing it costs monitoring and nothing else.
 
 ---
 
@@ -18,6 +17,7 @@ else.
 |---|---|
 | `apps/android/` | Kotlin + Jetpack Compose client |
 | [`apps/dashboard-android/`](apps/dashboard-android/README.md) | DRISHTI Monitor — the Android app an NGO desk watches the programme from |
+| [`apps/coordinator/`](apps/coordinator/README.md) | Local-LAN FastAPI service for the single live Monitor participant |
 | `apps/dashboard/` | React + Vite coordinator dashboard. Being retired in favour of the Android one. |
 | `packages/contracts/` | TypeScript API contracts |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Perception and guidance pipeline specification |
@@ -60,9 +60,11 @@ and can run the same detector on the CPU for comparison.
 **Monitor** — a second Android app, [`apps/dashboard-android/`](apps/dashboard-android/README.md),
 for the NGO desk rather than the walker: who is out and how they are, who has
 asked for help and how to reach them, each person's safety events, and the
-street hazards that more than one person has walked into. It runs on sample
-data today — there is no feed from the walking app yet — and says so in its own
-masthead on every screen.
+street hazards that more than one person has walked into. One access-key-protected
+participant is live and pinned first: Call uses the configured real number,
+location comes from foreground-only GPS, and obstacle events come from the
+on-device safety verdict. The other people and all aggregate hazards remain
+explicit sample data; the badge says **1 live + sample**.
 
 ---
 
@@ -170,6 +172,9 @@ mobility training, or human judgement.
 - No frame storage, no facial recognition, no identity tracking, no route
   history. Evidence images leave the device only after an explicit per-report
   consent gesture.
+- Monitor location is sampled only while Walk Mode's foreground service is
+  active. The optional feed contains coordinates, battery, activity and safety
+  facts—not camera frames—and requires a shared local access key.
 - Continuous safety never depends on the laptop, a vision-language model, or a
   network round trip.
 

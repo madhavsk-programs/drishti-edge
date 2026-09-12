@@ -7,6 +7,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.drishti.dashboard.data.DemoMonitorRepository
+import com.drishti.dashboard.BuildConfig
+import com.drishti.dashboard.data.MixedMonitorRepository
 import com.drishti.dashboard.data.HazardStatus
 import com.drishti.dashboard.data.MonitorRepository
 import kotlinx.coroutines.delay
@@ -103,8 +105,7 @@ class DashboardViewModel(
 
     companion object {
         /**
-         * The composition root, such as it is. One line to change when a real
-         * desk feed replaces the demo one.
+         * The composition root: one mixed repository for the app process.
          */
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -117,9 +118,8 @@ class DashboardViewModel(
 }
 
 /**
- * The demo repository outlives any one view model so its ticking clock and any
- * acknowledgements survive a rotation. A real implementation would be created
- * the same way, in an Application, and this is the seam where that happens.
+ * The mixed repository outlives any one view model so polling, its demo clock
+ * and acknowledgements survive a rotation.
  */
 internal object RepositoryHolder {
     lateinit var instance: MonitorRepository
@@ -131,5 +131,9 @@ internal object RepositoryHolder {
 
     fun installDemo(scope: kotlinx.coroutines.CoroutineScope) {
         install(DemoMonitorRepository(scope))
+    }
+
+    fun installMixed(scope: kotlinx.coroutines.CoroutineScope) {
+        install(MixedMonitorRepository(scope, BuildConfig.COORDINATOR_URL))
     }
 }

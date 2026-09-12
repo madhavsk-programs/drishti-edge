@@ -98,15 +98,12 @@ data class HealthModels(
 
 @Serializable
 data class HealthResponse(
-    val schemaVersion: String,
-    val serverTime: String,
-    val status: ServiceStatus,
-    val runtimeMode: String,
-    val service: HealthService,
-    val compute: HealthCompute,
-    val models: HealthModels,
-    val database: ModuleHealth,
-    val walkModeAvailable: Boolean,
+    val status: String,
+    val service: String,
+    val version: String,
+    val serverTimeMs: Long,
+    val liveParticipantId: String,
+    val hasReceivedTelemetry: Boolean,
 )
 
 // ---- Walk sessions -------------------------------------------------------------
@@ -144,6 +141,45 @@ data class EndWalkSessionResponse(
     val sessionId: String,
     val endedAt: String,
     val status: String,
+)
+
+// ---- Optional monitor telemetry ---------------------------------------------
+
+/** A GPS fact captured while Walk Mode's foreground service is active. */
+@Serializable
+data class MonitorLocation(
+    val latitude: Double,
+    val longitude: Double,
+    val accuracyM: Double? = null,
+    val observedAtMs: Long,
+)
+
+/** The current on-device safety decision; never a camera frame or image. */
+@Serializable
+data class MonitorObstacle(
+    val action: String,
+    val riskLevel: String,
+    val reasonCode: String,
+    val label: String? = null,
+    val direction: String? = null,
+)
+
+@Serializable
+data class MonitorTelemetryRequest(
+    val schemaVersion: String = "1.0.0",
+    val participantId: String,
+    val sessionId: String,
+    val sentAtMs: Long,
+    val activity: String,
+    val batteryPercent: Int? = null,
+    val location: MonitorLocation? = null,
+    val obstacle: MonitorObstacle? = null,
+)
+
+@Serializable
+data class MonitorTelemetryAck(
+    val accepted: Boolean,
+    val serverTimeMs: Long,
 )
 
 // ---- Frame analysis -------------------------------------------------------------

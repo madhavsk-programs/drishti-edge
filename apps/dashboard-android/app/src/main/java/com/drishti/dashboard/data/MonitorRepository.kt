@@ -5,9 +5,9 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * Everything the screens are allowed to know about where data comes from.
  *
- * The only implementation today is [DemoMonitorRepository], which invents its
- * own. When a desk feed exists it slots in behind this interface and no screen
- * changes — which is the reason the interface exists before the feed does.
+ * [DemoMonitorRepository] owns hardcoded programme data and
+ * [MixedMonitorRepository] adds the one real walking phone without changing a
+ * screen — the reason this interface existed before the feed did.
  *
  * Writes are fire-and-forget and update the flow. A networked implementation
  * will need failure back, so when that lands these return a result rather than

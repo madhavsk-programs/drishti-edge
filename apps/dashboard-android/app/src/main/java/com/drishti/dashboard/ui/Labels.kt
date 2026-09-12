@@ -131,6 +131,7 @@ fun SafetyEventKind.label(): String = when (this) {
     SafetyEventKind.HAZARD_REPORTED -> "Reported a hazard"
     SafetyEventKind.WALK_STARTED -> "Walk started"
     SafetyEventKind.WALK_ENDED -> "Walk ended"
+    SafetyEventKind.OBSTACLE_DETECTED -> "Obstacle detected"
 }
 
 fun SafetyEventKind.tone(): Tone = when (this) {
@@ -138,6 +139,7 @@ fun SafetyEventKind.tone(): Tone = when (this) {
     SafetyEventKind.REPEATED_STOP,
     SafetyEventKind.UNSIGNALLED_CROSSING,
     SafetyEventKind.LOW_BATTERY,
+    SafetyEventKind.OBSTACLE_DETECTED,
     -> AttentionTone
 
     SafetyEventKind.SIGNAL_LOST, SafetyEventKind.OFF_USUAL_ROUTE -> OfflineTone
@@ -155,6 +157,7 @@ fun SafetyEventKind.icon(): ImageVector = when (this) {
     SafetyEventKind.HAZARD_REPORTED -> Icons.Rounded.Build
     SafetyEventKind.WALK_STARTED -> Icons.Rounded.Star
     SafetyEventKind.WALK_ENDED -> Icons.Rounded.CheckCircle
+    SafetyEventKind.OBSTACLE_DETECTED -> Icons.Rounded.Warning
 }
 
 // ---- hazards -------------------------------------------------------------

@@ -52,6 +52,7 @@ import com.drishti.dashboard.ui.explanation
 import com.drishti.dashboard.ui.icon
 import com.drishti.dashboard.ui.label
 import com.drishti.dashboard.ui.rememberDialer
+import com.drishti.dashboard.ui.rememberMapLauncher
 import com.drishti.dashboard.ui.theme.HelpTone
 import com.drishti.dashboard.ui.theme.IndigoTone
 import com.drishti.dashboard.ui.theme.InkMuted
@@ -77,6 +78,7 @@ fun PersonScreen(
     nowMs: Long,
 ) {
     val dial = rememberDialer()
+    val openMap = rememberMapLauncher()
     val status = liveStatusOf(person, nowMs)
     val tone = status.tone()
     val events = remember(person) { person.events.mostRecentFirst() }
@@ -141,6 +143,23 @@ fun PersonScreen(
                         icon = Icons.Rounded.LocationOn,
                         iconTint = tone.strong,
                     )
+                    if (person.isLive && person.latitude != null && person.longitude != null) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = Elapsed.coordinates(person.latitude, person.longitude) +
+                                (person.locationAccuracyM?.let { "  ·  ±${it.toInt()} m" } ?: ""),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = InkMuted,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        QuietAction(
+                            label = "Open live location",
+                            tone = IndigoTone,
+                            icon = Icons.Rounded.LocationOn,
+                            onClick = { openMap(person.latitude, person.longitude, person.name) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     Spacer(Modifier.height(16.dp))
                     FactRow(
                         label = "Last update",
@@ -245,23 +264,25 @@ fun PersonScreen(
                         onClick = { dial(person.phoneNumber) },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Spacer(Modifier.height(22.dp))
-                    Rule()
-                    Spacer(Modifier.height(22.dp))
-                    FactRow(
-                        label = "Emergency contact",
-                        value = "${person.emergencyContactName}\n${person.emergencyContactNumber}",
-                        icon = CallIcon,
-                        iconTint = SlateTone.strong,
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    QuietAction(
-                        label = "Call ${person.emergencyContactName.substringBefore(' ')}",
-                        tone = SlateTone,
-                        icon = CallIcon,
-                        onClick = { dial(person.emergencyContactNumber) },
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                    if (person.emergencyContactNumber.isNotBlank()) {
+                        Spacer(Modifier.height(22.dp))
+                        Rule()
+                        Spacer(Modifier.height(22.dp))
+                        FactRow(
+                            label = "Emergency contact",
+                            value = "${person.emergencyContactName}\n${person.emergencyContactNumber}",
+                            icon = CallIcon,
+                            iconTint = SlateTone.strong,
+                        )
+                        Spacer(Modifier.height(14.dp))
+                        QuietAction(
+                            label = "Call ${person.emergencyContactName.substringBefore(' ')}",
+                            tone = SlateTone,
+                            icon = CallIcon,
+                            onClick = { dial(person.emergencyContactNumber) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             }
         }

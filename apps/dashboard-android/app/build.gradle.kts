@@ -1,6 +1,14 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.kotlin.serialization)
+}
+
+val drishtiLocalProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.isFile) file.inputStream().use { input -> load(input) }
 }
 
 android {
@@ -34,9 +42,21 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
         aidl = false
-        buildConfig = false
         shaders = false
+    }
+
+    defaultConfig {
+        val coordinatorUrl = providers.gradleProperty("drishtiCoordinatorUrl")
+            .orElse("http://172.26.252.175:8000/")
+            .get()
+        buildConfigField("String", "COORDINATOR_URL", "\"$coordinatorUrl\"")
+        buildConfigField(
+            "String",
+            "MONITOR_TOKEN",
+            "\"${drishtiLocalProperties.getProperty("drishti.monitorToken", "configure-me")}\"",
+        )
     }
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
@@ -54,6 +74,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.okhttp.core)
 
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

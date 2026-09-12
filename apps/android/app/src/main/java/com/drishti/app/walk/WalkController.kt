@@ -32,6 +32,8 @@ import com.drishti.app.net.TargetTrackingTelemetry
 import com.drishti.app.net.StartWalkSessionRequest
 import com.drishti.app.net.WalkSettings
 import com.drishti.app.net.apiCall
+import com.drishti.app.monitor.MonitorTelemetryClient
+import com.drishti.app.monitor.WalkLocationTracker
 import com.drishti.app.scene.SceneDescriber
 import com.drishti.app.scene.SceneVlm
 import com.drishti.app.scene.TargetLocator
@@ -154,6 +156,8 @@ class WalkController(
     private val hazards = HazardReporter(api, pipeline, speech, strings)
     private val nearby = NearbyAdvisor(api, speech, strings)
     private val sos = SosController(scope, speech, strings)
+    private val location = WalkLocationTracker(app)
+    private val monitorTelemetry = MonitorTelemetryClient(app, api, location)
 
     private val gate = CaptureLoopGate()
     private val freshness = FrameFreshnessGate()
@@ -162,10 +166,10 @@ class WalkController(
 
     /**
      * The walking loop runs entirely on this device (BUILD_PLAN.md task A6).
-     * There is no path from here to the network in any state, by any toggle —
-     * reintroducing one under failure conditions restores exactly the coupling
-     * this migration exists to remove, at the moment the user can least
-     * tolerate it (ARCHITECTURE.md §19.3).
+     * Nothing in this loop waits for or reads from the network. The separate
+     * MonitorTelemetryClient receives already-finished facts through a
+     * capacity-1 drop-oldest queue; it cannot affect the decision below
+     * (ARCHITECTURE.md §19.3).
      */
     private val yuv = YuvToRgb()
     private var localPipeline: LocalWalkPipeline? = null
@@ -253,6 +257,7 @@ class WalkController(
             spatial.setEnabled(settings.spatialAudioEnabled)
             gyro.start()
             focus.acquire()
+            location.start()
 
             runCatching {
                 pipeline.start(owner, targetWidth = maxImageWidth, onFrame = ::onCameraFrame)
@@ -263,6 +268,7 @@ class WalkController(
 
             _state.value = _state.value.copy(mode = WalkMode.WALKING, message = null)
             speech.say(strings.string(R.string.walk_started), flush = true)
+            sessionId?.let { monitorTelemetry.offer(it, _state.value) }
             startTickers()
         }
     }
@@ -280,6 +286,10 @@ class WalkController(
             gyro.stop()
             focus.release()
             haptic.cancel()
+            sessionId?.let { id ->
+                monitorTelemetry.offer(id, WalkUiState(mode = WalkMode.STOPPED))
+            }
+            location.stop()
             sessionId = null
             localPipeline?.close()
             localPipeline = null
@@ -290,7 +300,12 @@ class WalkController(
 
     fun shutdown() {
         // Shared speech/haptic are owned by AppContainer; only tear down what we own.
-        scope.launch { stop().join() }
+        scope.launch {
+            stop().join()
+            // Closing a Channel drains its final buffered item. Waiting for stop()
+            // first preserves the NOT_WALKING observation during service teardown.
+            monitorTelemetry.shutdown()
+        }
         pipeline.shutdown()
     }
 
@@ -330,6 +345,12 @@ class WalkController(
         tickers += scope.launch {
             while (isActive) {
                 if (_state.value.diagnostics.visible) pollDeviceHealth()
+                delay(2_000)
+            }
+        }
+        tickers += scope.launch {
+            while (isActive) {
+                sessionId?.let { monitorTelemetry.offer(it, _state.value) }
                 delay(2_000)
             }
         }

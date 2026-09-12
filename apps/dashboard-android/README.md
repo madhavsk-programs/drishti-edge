@@ -7,10 +7,10 @@ It replaces the React dashboard in `apps/dashboard/`. That one assumed a
 laptop, a FastAPI service and a Wi-Fi network; this one assumes a phone in a
 pocket, which is what a coordinator in the field actually has.
 
-> **This build has no backend and no connection to the walking app.** Everything
-> on screen is sample data, and the masthead says so in every screenshot. The
-> seam where a real feed arrives is one interface — see *Wiring a real feed*
-> below.
+> **This build combines one live walking phone with sample programme data.**
+> The live participant is pinned first; Call, foreground GPS and obstacle events
+> are real. Every other person and all aggregate hazards remain hardcoded. The
+> badge says *1 live + sample* so those two sources are never blurred.
 
 ---
 
@@ -52,8 +52,8 @@ that receives a list mixing the two learns to discount the list.
 
 ## What it deliberately does not do
 
-- **No `INTERNET` permission.** There is nothing to talk to, and a manifest
-  that claims otherwise is a manifest that lies.
+- **No camera feed.** The network carries compact facts only—activity, battery,
+  coordinates and an on-device safety verdict. Monitor never receives pixels.
 - **No `CALL_PHONE`.** "Call" opens the dialler with the number filled in
   (`ACTION_DIAL`). The operator's own final tap is what places the call, so a
   mis-tap on a red card cannot ring anybody.
@@ -61,9 +61,8 @@ that receives a list mixing the two learns to discount the list.
   the screen. This one is read in daylight next to paper, and the tinted status
   fills are built for a light ground. A dark palette nobody has looked at would
   be worse than not offering one.
-- **No location on a map.** Coordinates are shown as text because there is no
-  map dependency and no key; the label ("Adyar Signal, north-east corner") is
-  what an operator repeats on the phone anyway.
+- **No embedded map SDK or key.** The live participant's latest coordinates are
+  shown as text and open in the phone's installed Maps app through a `geo:` URI.
 
 ---
 
@@ -104,6 +103,7 @@ called, somebody wrote a string outside that file.
 data/        Models.kt         the facts a phone reports
              MonitorRepository the one interface the screens know about
              DemoMonitorRepository + DemoScript   sample data, re-anchored each tick
+             MixedMonitorRepository + LiveWire    one access-key-protected live phone
 domain/      Status.kt         status derivation, wall order, counts
              Hazards.kt        corroboration, works order, tally
              Elapsed.kt        relative time, locale-independent coordinates
@@ -132,7 +132,7 @@ should stand between a coordinator's laptop and a dashboard build. Versions
 both.
 
 ```bash
-./gradlew :app:testDebugUnitTest    # 28 tests
+./gradlew :app:testDebugUnitTest    # 32 tests
 adb install -r -t app/build/outputs/apk/debug/app-debug.apk
 ```
 
@@ -141,29 +141,19 @@ foreground service.
 
 ---
 
-## Wiring a real feed
+## Live feed
 
-Implement `data/MonitorRepository`:
+Run [`../coordinator/`](../coordinator/README.md) on the laptop. The current
+event Wi-Fi default is `http://172.26.252.175:8000/`; override it at build time
+with `-PdrishtiCoordinatorUrl=http://<laptop-ip>:8000/` when the network changes.
 
-```kotlin
-interface MonitorRepository {
-    val snapshot: StateFlow<DeskSnapshot>
-    fun acknowledgeHelp(personId: String, operatorName: String)
-    fun clearHelp(personId: String)
-    fun raiseDeskCheck(personId: String, operatorName: String)
-    fun setHazardStatus(hazardId: String, status: HazardStatus, assignedTo: String?)
-}
-```
+The same long random key must be present as `DRISHTI_ACCESS_TOKEN` in the
+coordinator's ignored `.env` and as `drishti.monitorToken` in both Android
+projects' ignored `local.properties`. Examples are committed; real identity,
+phone number and key are not.
 
-and change the one line in `MainActivity.onCreate` that installs the demo one.
-No screen changes, because no screen knows where a `DeskSnapshot` came from.
-Set `DeskSnapshot.source = LIVE` and the masthead badge stops saying *Sample
-data* — which is the only thing that should ever make it stop saying that.
-
-Two things a real implementation has to decide that this one dodges:
-
-- **Writes return `Unit`.** A networked one needs failure back. Leaving that
-  generality in now would be a guess at its shape.
-- **The walking app sends nothing today.** It has no telemetry client since the
-  network DTOs were deleted; something has to put a `DeskSnapshot` on a wire
-  before any of this is live.
+The walking app posts at most the newest envelope every two seconds. Monitor
+polls at the same cadence and retains the last live fact when the laptop drops;
+the existing 90-second rule then turns silence into `No signal`. Obstacle
+events are generated only for non-clear safety decisions, on a changed reason
+or after a 30-second cooldown, so one chair does not flood the timeline.

@@ -146,10 +146,10 @@ while changing platform is a port whose failures cannot be isolated.
 
 ### 2.4 Narrowed, not deleted
 
-The FastAPI service is **not** removed. The dashboard and the SQLite hazard store
-still need a local data owner. Its hackathon runtime responsibilities narrow to
-those in §19: health, telemetry ingestion, hazard CRUD and exports, the dashboard
-feed, and an optional explicit snapshot locator.
+The FastAPI service is **not** removed. Its hackathon runtime responsibility is
+narrowed to the one real participant requested for the Android Monitor: health,
+structured telemetry ingestion, and a latest-person feed. The remaining roster
+and aggregate hazard programme stay explicitly hardcoded in Monitor.
 
 It receives structured telemetry, never the walking frame stream.
 
@@ -1357,16 +1357,14 @@ narrow, honest job.
 
 | Responsibility | Endpoint / store |
 |---|---|
-| Coordinator, database, and dashboard health | `/api/v1/health` |
-| Ingestion of structured phone telemetry and model/runtime measurements | telemetry envelope (Appendix A) |
-| Hazard report CRUD, recurrence, accessibility scoring | SQLite |
-| CSV / JSON export | existing exports |
-| The dashboard's REST and bounded live feed | existing |
-| Optional explicit snapshot locator | `/api/v1/vlm/locate` (§6.4 rung 2) |
+| Coordinator health | `GET /api/v1/health` |
+| One phone's activity, battery, GPS and safety facts | `POST /api/v1/monitor/telemetry` |
+| The one live participant read by Monitor | `GET /api/v1/monitor/live-person` |
 
-The fixed coordinator URL `http://10.111.36.200:8000` stays as the client's
-default. It is **configuration for the dashboard and the optional locator**, not
-a dependency of Walk Mode.
+The current event Wi-Fi default is `http://172.26.252.175:8000`; it remains
+editable/build-configurable because private addresses change with the network.
+Both data endpoints require the same key from ignored local configuration. The
+coordinator is **monitoring output**, not a dependency of Walk Mode.
 
 ### 19.2 The rule that defines it
 
@@ -1436,12 +1434,19 @@ Three things are stated more strictly than the web version stated them:
   unconfirmed are kept visually distinct, because a works list that blurs them
   is a works list that gets discounted whole.
 
-The app has **no backend today**, by intent: it ships against an in-memory
-sample programme behind a single `MonitorRepository` interface, and its
-masthead says *Sample data* on every screen until a `DeskSnapshot` says
-otherwise. Nothing in this section changes §19.2 — the walking loop still does
-not know the monitor exists, and the walking app currently sends it nothing,
-having had its network DTOs deleted.
+The app now ships a mixed repository behind the original `MonitorRepository`
+seam. `DemoMonitorRepository` continues to own every sample person and hazard;
+`MixedMonitorRepository` polls one access-key-protected live participant and
+pins that card first. The masthead says *1 live + sample*—never simply *Live*—so
+the origin of the rest of the wall stays explicit.
+
+The walking app sends a compact envelope every two seconds through a capacity-1
+drop-oldest channel: activity, battery, the latest foreground-only GPS fix, and
+the current on-device guidance/obstacle fact. The coordinator turns a changed
+non-clear verdict into an `OBSTACLE_DETECTED` event and suppresses repeats for
+30 seconds. It receives no pixels. If Wi-Fi or the coordinator disappears, the
+queue retains at most the newest observation and the safety loop continues
+unchanged.
 
 The web dashboard and the FastAPI service stay in the tree until the Android
 one has a feed behind it. Deleting a working monitor before its replacement can
@@ -1853,7 +1858,7 @@ VRAM.
 | 4 | Normalized box/point coordinates and target state names are unchanged | `ORIENTED_CAPTURE_NORMALIZED` and `IDLE`/`SEEKING`/`GUIDING`/`ARRIVED`/`LOST` stay exactly as they are. |
 | 5 | Locator confidence becomes nullable | Moondream2 returns a box without a calibrated probability. `null` is the truthful value; a fabricated `0.85` is not. |
 | 6 | A compatibility adapter for the dashboard | It keeps working against the current shapes while it learns phone-owned telemetry. |
-| 7 | `http://10.111.36.200:8000` is retained as the coordinator URL | Configuration for the dashboard and the optional locator; **not** a Walk Mode dependency. |
+| 7 | `http://172.26.252.175:8000` is the current event-LAN coordinator default | Build-time configuration for observational Monitor telemetry only; **not** a Walk Mode dependency. |
 
 ---
 

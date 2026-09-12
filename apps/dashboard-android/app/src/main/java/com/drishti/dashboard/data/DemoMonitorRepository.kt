@@ -12,9 +12,10 @@ import kotlinx.coroutines.launch
 /**
  * A desk with nobody behind it.
  *
- * There is no backend yet, so this stands one up in memory. The important part
- * is what it does *not* do: it never fabricates a status. It fabricates the
- * facts a phone would report — last frame at, battery, an SOS press — and
+ * This is the hardcoded programme half of [MixedMonitorRepository]; its sample
+ * people and hazards stand in memory beside the one live participant. It never
+ * fabricates a derived status. It fabricates the underlying facts a phone would
+ * report — last frame at, battery, an SOS press — and
  * [com.drishti.dashboard.domain.liveStatusOf] derives the rest exactly as it
  * will when the facts arrive over a wire.
  *

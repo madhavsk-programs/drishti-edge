@@ -33,7 +33,7 @@ frame at **63.63 ms**. The result is not specific to one handset or one export.
 | Segmentation | SegFormer-B0 ADE20K, every 3rd frame, **guarded NPU rung**. Probe: **11.33 ms NPU vs 150.25 ms CPU** on a public fixture |
 | Guidance | Reaches reasoned verdicts — `CENTRE_BLOCKED_DIRECTION_UNCLEAR` with left walkable and centre blocked, not a generic pause |
 | Network in the walk path | **None.** `api.analyze`, the multipart assembly and the retry loop are deleted, not toggled |
-| Tests | **79 unit tests, 0 failures**, plus on-device tests: 2 OCR (Latin and Hindi/Devanagari), 4 Scene VLM (answer, cancellation, real people, Hindi output), and 1 two-finger Explore gesture |
+| Tests | **82 main-app unit tests, 0 failures**, plus on-device tests: 2 OCR (Latin and Hindi/Devanagari), 4 Scene VLM (answer, cancellation, real people, Hindi output), and 1 two-finger Explore gesture. Monitor: **32 tests**. Coordinator: **5 tests** |
 
 ### Cards complete
 
@@ -44,6 +44,7 @@ frame at **63.63 ms**. The result is not specific to one handset or one export.
 | **A3 surfaces** | `Surfaces.kt`, `SegFormerSegmenter.kt`, `SurfaceEvidenceBuilder.kt` |
 | **A6** | `inference/` seam + `LocalWalkPipeline` + the `WalkController` rewire |
 | **A8** | Bundled ML Kit Latin + Hindi/Devanagari OCR, localized confidence/route announcements, and uninterrupted walking safety during a read. Verified with `BUS 42A` and `बस ४२` |
+| **A9 / E8** | FastAPI coordinator + one live Monitor participant. Foreground GPS, call target and deduplicated obstacle events are live; all other cards/hazards remain sample data |
 
 ### Scene Mode — running on device
 
@@ -102,6 +103,13 @@ English-only by design and was not touched by this work.
 
 ### NEXT AGENT — start here
 
+The NGO Monitor live seam landed on 13 September 2026. `apps/coordinator/` is
+the local-LAN service; the actual identity and shared access key stay in ignored
+`.env` / `local.properties` files. The live card is `Arun Kumar`, pinned first,
+and reports GPS, battery, walk activity and obstacle decisions every two seconds.
+The dashboard badge deliberately reads `1 live + sample` because every other
+person, alert and aggregate hazard remains hardcoded.
+
 The two demo-runbook gaps are closed:
 
 - **Find runs on the phone** (A5 + A10). Landmark memory and turn-by-turn
@@ -130,8 +138,8 @@ What is left, in order:
    half) if time allows; the walk loop already serialises through
    `inferenceLock`, so this is belt-and-braces, not a gap.
 
-The coordinator (A9/E8) is still absent and stays the lowest priority: it
-only backs the dashboard, and the demo's key beat is turning it off.
+The coordinator (A9/E8) is complete and optional. Turning it off makes the live
+card age to `No signal`; it cannot change or stop phone guidance.
 
 Standing constraints, unchanged:
 
@@ -340,7 +348,7 @@ dashboard, and P0.4 is the first thing cut if anything overruns.
 | — | **Sleep** | **5.0** | — | — |
 | E7 | Ask → Lock → Guide (R6) | 2.5 | Soft | Cut Find |
 | E8 | Coordinator and dashboard (R7) | 1.5 | Soft | Cut dashboard. **Answered differently** — see E8′ |
-| E8′ | DRISHTI Monitor, the NGO Android app | 2.0 | Soft | **Built**, on sample data, no backend |
+| E8′ | DRISHTI Monitor, the NGO Android app | 2.0 | Soft | **Built**, one live participant plus sample programme |
 | E9 | Soak and the §23.2 functional checks | 2.0 | **HARD** | Never cut |
 | E10 | VLM stretch (R8) — **16 GB only** | 2.0 | ~~Optional~~ **DONE** | Shipped: LFM2.5-VL-450M, ungated |
 | E11 | Freeze, rehearse, evidence pack | 3.0 | **HARD** | Never cut |
@@ -366,17 +374,18 @@ dashboard, and P0.4 is the first thing cut if anything overruns.
 
 > **Where the build actually stands:** everything through E10 is built. E7
 > (Find), E10 (Scene VLM) and the A7 diagnostics panel all landed. The
-> coordinator half of E8 did not, and by §6.2's own cut order it is the right
-> thing to be missing — the demo's strongest beat is turning the laptop off.
+> narrowly scoped coordinator half of E8 has now landed. It observes one
+> consenting participant over the event LAN; it has no inference or guidance
+> role, so the walking product still works identically when the laptop is off.
 >
 > The *monitoring* half was answered another way. `apps/dashboard-android/` is
 > a second Android app for the NGO desk — live status, help requests with a
-> dialler, per-person safety events, corroborated street hazards — running on
-> an in-memory sample programme with no backend and no connection to the
-> walking app, which its masthead states on every screen. It retires the React
+> dialler, per-person safety events, corroborated street hazards — running one
+> real card from `apps/coordinator/` above the existing in-memory sample
+> programme. It retires the React
 > dashboard, whose dependency on a laptop plus FastAPI plus a shared network
 > made it unavailable in exactly the situation it existed for (ARCHITECTURE.md
-> §19.5). 28 unit tests; three screens verified on device.
+> §19.5). 32 unit tests; the mixed live/sample screens are verified on device.
 >
 > What remains is E9 (soak and the §23.2 checks) and E11 (freeze, rehearsal,
 > evidence pack), neither of which may be cut.
@@ -1589,9 +1598,10 @@ measurement. This file is that record.
 
 ## P0.4 — Coordinator restore (1.0 h) **[AGENT — task A9]**
 
-There is **no backend in this repository.** `apps/` contains only `android` and
-`dashboard`; the FastAPI service exists only in the gitignored
-`entire-old-codebase/backend/`. The dashboard cannot run without it.
+**Resolved:** `apps/coordinator/` is now the deliberately narrow FastAPI service
+described in [A9](#a9--the-narrowed-coordinator). It carries no inference,
+database, images, or guidance path; it only relays the live participant facts
+that DRISHTI Monitor is allowed to show.
 
 See [A9](#a9--the-narrowed-coordinator). First thing cut if P0.1 overruns.
 
@@ -2203,37 +2213,31 @@ reader, and asserted both recognized text and route `42A`. Result: **1 test,
 
 ---
 
-## A9 — The narrowed coordinator
+## A9 — The narrowed coordinator **[COMPLETE]**
 
-**Slot:** P0.4 · **Gate:** R7 · **Phone:** not needed
+**Slot:** P0.4 · **Gate:** R7 · **Phone:** verified 13 September 2026
 
 > **Why a backend exists at all.** It does not serve the product. The phone
 > owns every frame, every inference and every guidance decision, and it would run
 > identically if this service never existed. The backend exists for exactly one
-> reason: **the React dashboard is an HTTP client and needs something to talk
-> to.** Nothing else. If the dashboard were cut, the backend would be cut with
-> it in the same commit.
+> reason: **the Android Monitor needs one real participant to observe.** Nothing
+> else. If that live card were cut, the backend would be cut with it.
 >
-> Scope it accordingly. This is a **data shim for one web page**, not a service.
-> Target ~200 lines and one process. If it grows past that, something has been
-> carried over that should have been deleted.
+> Scope it accordingly. This is a small data shim, not an inference service.
 
-**Task.** Create `apps/coordinator/` from `entire-old-codebase/backend/`,
-carrying **only** what `ARCHITECTURE.md` §19.1 keeps:
+**Landed.** `apps/coordinator/` carries only what `ARCHITECTURE.md` §19.1 keeps:
 
 | Keep | Drop |
 |---|---|
 | `/api/v1/health` | `/api/v1/walk/analyze` — **the entire frame-ingress path** |
-| Telemetry envelope ingestion | `perception/` — detector, segmenter, tracking |
-| Hazard CRUD, recurrence, accessibility scoring | `risk/`, `spatial/`, `guidance/` |
-| CSV / JSON export | `explore/local_vlm.py`, `api/vlm.py` |
-| Dashboard REST + bounded live feed | `scheduling/latest_frame.py` |
-| SQLite + Alembic migrations | `frame_ingress.py` |
+| Access-key-protected telemetry ingestion | `perception/` — detector, segmenter, tracking |
+| One latest-person endpoint | `risk/`, `spatial/`, `guidance/` |
+| 30-second obstacle-event deduplication | OCR, VLM and every image endpoint |
+| In-memory 50-event session history | SQLite, migrations and aggregate-hazard CRUD |
 
-Dependencies drop to `fastapi uvicorn sqlalchemy pydantic pydantic-settings` —
-no torch, no ultralytics, no opencv, no transformers, **and no Alembic**. Three
-migration files for a throwaway hackathon database is ceremony; use
-`Base.metadata.create_all()` on startup and delete `db/migrations/` entirely.
+Dependencies are only FastAPI, Uvicorn and Pydantic Settings—no database, torch,
+ultralytics, OpenCV, transformers or Alembic. Identity and the shared access key
+live in ignored local configuration.
 
 > **MUST NOT** port `walk_sessions.py`, `frame_ingress.py`, `request_limits.py`,
 > or any `/api/v1/walk/*` route. The phone does not call them. A route that
@@ -2245,12 +2249,11 @@ migration files for a throwaway hackathon database is ceremony; use
 > **MUST NOT** let reconnection replay stale safety instructions. Telemetry is a
 > record of what already happened, not a command channel.
 
-Adapt the health and model panels so a phone NPU execution is never displayed as
-consuming laptop VRAM (Appendix A of `ARCHITECTURE.md`).
-
-**Acceptance:** `uvicorn` starts; `/api/v1/health` answers;
-`npm run dev --workspace apps/dashboard` renders against it; **and killing the
-coordinator changes nothing about a running phone build.**
+**Acceptance achieved:** Uvicorn bound to the laptop LAN address; health and
+authenticated feed endpoints answered; the real iQOO posted battery, GPS and a
+`STOP` obstacle event; Monitor rendered `Arun Kumar` first under an honest
+`1 live + sample` badge. The Android submission uses a capacity-1 drop-oldest
+queue, so stopping the coordinator cannot delay the walking loop.
 
 ---
 

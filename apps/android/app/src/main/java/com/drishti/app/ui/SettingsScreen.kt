@@ -81,9 +81,12 @@ fun SettingsScreen(
                     statusColor = DrishtiWhite
                     when (val r = apiCall { container.api.health() }) {
                         is ApiResult.Ok -> {
-                            container.updateHealthOk(r.value.walkModeAvailable)
-                            status = "OK — walk_mode_available=${r.value.walkModeAvailable}, " +
-                                "detector=${r.value.models.detector.status}, ocr=${r.value.models.ocr.status}"
+                            container.updateHealthOk(true)
+                            status = if (r.value.hasReceivedTelemetry) {
+                                "Coordinator connected — live phone is reporting"
+                            } else {
+                                "Coordinator connected — waiting for Walk Mode"
+                            }
                             statusColor = DrishtiGreen
                         }
                         is ApiResult.Failure -> {

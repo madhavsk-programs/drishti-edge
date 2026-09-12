@@ -73,9 +73,15 @@ fun WalkScreen(
                 PackageManager.PERMISSION_GRANTED,
         )
     }
+    var walkPermissionsResolved by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted -> hasCamera = granted }
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { grants ->
+        hasCamera = grants[Manifest.permission.CAMERA] == true ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        walkPermissionsResolved = true
+    }
 
     // Microphone drives the spoken question for the VLM scene-description path.
     // Requested once, after camera; denial only degrades that one feature.
@@ -83,8 +89,19 @@ fun WalkScreen(
         ActivityResultContracts.RequestPermission(),
     ) { /* SceneDescriber re-checks at call time */ }
 
-    LaunchedEffect(hasCamera) {
-        if (hasCamera) {
+    LaunchedEffect(Unit) {
+        val missing = listOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ).filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) walkPermissionsResolved = true else permissionLauncher.launch(missing.toTypedArray())
+    }
+
+    LaunchedEffect(walkPermissionsResolved, hasCamera) {
+        if (walkPermissionsResolved && hasCamera) {
             onStartWalkService()
             if (
                 ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
@@ -92,8 +109,6 @@ fun WalkScreen(
             ) {
                 micLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
-        } else {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
 

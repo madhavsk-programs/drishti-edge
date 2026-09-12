@@ -6,7 +6,10 @@ import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.IBinder
 import android.os.PowerManager
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import com.drishti.app.DrishtiApp
 import com.drishti.app.MainActivity
@@ -61,7 +64,7 @@ class WalkForegroundService : LifecycleService() {
                 startForeground(
                     DrishtiApp.WALK_NOTIFICATION_ID,
                     buildNotification(),
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA,
+                    foregroundServiceTypes(),
                 )
                 acquireWakeLock()
                 controller.start(this)
@@ -86,6 +89,16 @@ class WalkForegroundService : LifecycleService() {
     private fun releaseWakeLock() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
+    }
+
+    private fun foregroundServiceTypes(): Int {
+        val hasLocation =
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) ==
+                PackageManager.PERMISSION_GRANTED
+        return ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or
+            if (hasLocation) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
     }
 
     private fun buildNotification(): Notification {

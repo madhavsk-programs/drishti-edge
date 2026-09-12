@@ -18,8 +18,8 @@ import kotlinx.coroutines.SupervisorJob
  *
  * There is no dependency-injection framework and no navigation library. With a
  * single data source and a sealed route type, both would be ceremony around
- * about twenty lines of wiring — and the wiring that matters, the seam where a
- * real desk feed replaces the demo one, is one line below.
+ * about twenty lines of wiring — and the wiring that matters, the seam where
+ * one live phone is merged with the demo programme, is one line below.
  */
 class MainActivity : ComponentActivity() {
 
@@ -30,7 +30,7 @@ class MainActivity : ComponentActivity() {
         // Deliberately not lifecycleScope: the repository's clock should keep
         // running across a rotation so acknowledgements and the ticking feed
         // survive it. It lives as long as the process.
-        RepositoryHolder.installDemo(CoroutineScope(SupervisorJob() + Dispatchers.Default))
+        RepositoryHolder.installMixed(CoroutineScope(SupervisorJob() + Dispatchers.Default))
 
         setContent {
             DrishtiDashboardTheme {

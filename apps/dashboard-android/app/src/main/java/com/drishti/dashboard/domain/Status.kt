@@ -59,6 +59,7 @@ fun SafetyEventKind.needsACheck(): Boolean = when (this) {
     SafetyEventKind.UNSIGNALLED_CROSSING,
     SafetyEventKind.SIGNAL_LOST,
     SafetyEventKind.LOW_BATTERY,
+    SafetyEventKind.OBSTACLE_DETECTED,
     -> true
 
     SafetyEventKind.OFF_USUAL_ROUTE,
@@ -78,7 +79,8 @@ fun SafetyEventKind.needsACheck(): Boolean = when (this) {
  */
 fun List<MonitoredPerson>.sortedForTheWall(nowMs: Long): List<MonitoredPerson> =
     sortedWith(
-        compareBy<MonitoredPerson> { liveStatusOf(it, nowMs).ordinal }
+        compareBy<MonitoredPerson> { if (it.isLive) 0 else 1 }
+            .thenBy { liveStatusOf(it, nowMs).ordinal }
             .thenBy { person ->
                 person.helpRequest?.requestedAtMs ?: person.lastUpdateMs
             }

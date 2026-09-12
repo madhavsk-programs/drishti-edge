@@ -27,6 +27,12 @@ data class MonitoredPerson(
     val batteryPercent: Int?,
     val helpRequest: HelpRequest?,
     val events: List<SafetyEvent>,
+    /** The single real phone feed, pinned ahead of the sample programme. */
+    val isLive: Boolean = false,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val locationAccuracyM: Double? = null,
+    val locationObservedAtMs: Long? = null,
 )
 
 /** What the phone says it is doing. Mirrors the walking app's modes. */
@@ -88,6 +94,7 @@ enum class SafetyEventKind {
     HAZARD_REPORTED,
     WALK_STARTED,
     WALK_ENDED,
+    OBSTACLE_DETECTED,
 }
 
 /**
@@ -139,6 +146,9 @@ enum class DataSource {
     /** Sample data generated on the phone. No device is reporting. */
     DEMO,
 
-    /** A real desk feed. Nothing produces this yet. */
+    /** A fully real desk feed. The current app uses MIXED instead. */
     LIVE,
+
+    /** One real walking phone combined with the deliberately hardcoded roster. */
+    MIXED,
 }

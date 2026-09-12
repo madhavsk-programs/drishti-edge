@@ -1,0 +1,2 @@
+# Copy this key from apps/coordinator/.env. Never commit the real value.
+drishti.monitorToken=replace-with-the-shared-local-key

@@ -119,18 +119,35 @@ fun PersonCard(
 
             Spacer(Modifier.height(14.dp))
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
+            if (person.isLive) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    TonePill(label = "LIVE PHONE", tone = com.drishti.dashboard.ui.theme.TealTone)
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = Elapsed.ago(person.lastUpdateMs, nowMs),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (status == LiveStatus.OFFLINE) tone.ink else InkMuted,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
                 TonePill(label = status.label(), tone = tone, icon = status.icon())
-                Spacer(Modifier.weight(1f))
-                Text(
-                    text = Elapsed.ago(person.lastUpdateMs, nowMs),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (status == LiveStatus.OFFLINE) tone.ink else InkMuted,
-                )
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    TonePill(label = status.label(), tone = tone, icon = status.icon())
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = Elapsed.ago(person.lastUpdateMs, nowMs),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (status == LiveStatus.OFFLINE) tone.ink else InkMuted,
+                    )
+                }
             }
 
             val battery = person.batteryPercent

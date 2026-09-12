@@ -24,6 +24,7 @@ class StatusTest {
         battery: Int? = 80,
         help: HelpRequest? = null,
         events: List<SafetyEvent> = emptyList(),
+        isLive: Boolean = false,
     ) = MonitoredPerson(
         id = id,
         name = name,
@@ -37,6 +38,7 @@ class StatusTest {
         batteryPercent = battery,
         helpRequest = help,
         events = events,
+        isLive = isLive,
     )
 
     private fun event(kind: SafetyEventKind, agoMs: Long) = SafetyEvent(
@@ -145,6 +147,17 @@ class StatusTest {
             .map { it.id }
 
         assertEquals(listOf("old", "new", "check", "quiet", "fine"), order)
+    }
+
+    @Test
+    fun `the one live phone is pinned before more urgent sample cards`() {
+        val sampleHelp = person(id = "sample", help = help(agoMs = 60_000))
+        val liveSafe = person(id = "live", isLive = true)
+
+        assertEquals(
+            listOf("live", "sample"),
+            listOf(sampleHelp, liveSafe).sortedForTheWall(now).map { it.id },
+        )
     }
 
     @Test

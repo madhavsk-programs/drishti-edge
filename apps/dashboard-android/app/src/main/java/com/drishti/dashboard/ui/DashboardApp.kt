@@ -146,7 +146,11 @@ private fun Masthead() {
 @Composable
 internal fun SourceBadge(source: DataSource) {
     val tone: Tone = if (source == DataSource.DEMO) ClayTone else IndigoTone
-    val label = if (source == DataSource.DEMO) "Sample data" else "Live"
+    val label = when (source) {
+        DataSource.DEMO -> "Sample data"
+        DataSource.LIVE -> "Live"
+        DataSource.MIXED -> "1 live + sample"
+    }
     Row(
         modifier = Modifier
             .clip(Pill)
@@ -154,10 +158,10 @@ internal fun SourceBadge(source: DataSource) {
             .border(1.dp, tone.edge, Pill)
             .padding(horizontal = 13.dp, vertical = 7.dp)
             .semantics {
-                contentDescription = if (source == DataSource.DEMO) {
-                    "Showing sample data. No device is reporting."
-                } else {
-                    "Showing live data."
+                contentDescription = when (source) {
+                    DataSource.DEMO -> "Showing sample data. No device is reporting."
+                    DataSource.LIVE -> "Showing live data."
+                    DataSource.MIXED -> "Showing one live phone with sample programme data."
                 }
             },
         verticalAlignment = Alignment.CenterVertically,

@@ -1,7 +1,14 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
   alias(libs.plugins.kotlin.serialization)
+}
+
+val drishtiLocalProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.isFile) file.inputStream().use { input -> load(input) }
 }
 
 android {
@@ -16,6 +23,11 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+        buildConfigField(
+            "String",
+            "MONITOR_TOKEN",
+            "\"${drishtiLocalProperties.getProperty("drishti.monitorToken", "configure-me")}\"",
+        )
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // The ONNX Runtime QNN AAR and the QAIRT backend libraries are arm64 only.
         ndk { abiFilters += "arm64-v8a" }
