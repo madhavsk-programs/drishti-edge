@@ -61,6 +61,14 @@ Current boundary:
 - An `sdkmanager` attempt to install NDK `29.0.14206865` and CMake `3.31.6` was
   interrupted before completion; neither directory was present when checked.
   Verify `.android-toolchain/sdk/ndk` and `cmake`, then rerun if absent.
+- The aligned `56167d0` debug build is installed on the connected 12 GB phone;
+  the four staged YOLO/SegFormer model/config files are present in its external
+  files directory. It was not launched after install, per the user's request to
+  ask them for physical feature tests rather than adding test-only UI.
+- One historical stash remains: `stash@{0}: Windows Android setup before
+  b1c425a handoff`. It predates the authoritative remote handoff. **Do not pop it
+  wholesale**; inspect individual paths only if something is demonstrably
+  missing. The useful Android wrapper and ignore rule are already committed.
 
 Implementation order:
 
