@@ -8,12 +8,21 @@ project(drishti_scene_vlm CXX)
 # snapshot someone may have edited in place.
 set(LLAMA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../third_party/llama.cpp")
 cmake_path(NORMAL_PATH LLAMA_DIR)
+set(KLEIDIAI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../../../third_party/kleidiai-v1.24.0")
+cmake_path(NORMAL_PATH KLEIDIAI_DIR)
 
 if(NOT EXISTS "${LLAMA_DIR}/CMakeLists.txt")
   message(FATAL_ERROR
     "llama.cpp not found at ${LLAMA_DIR}.\n"
     "Run scripts/bootstrap_llama.sh first — it clones the pinned revision "
     "recorded in docs/SCENE_MODE_VLM.md.")
+endif()
+
+# llama.cpp otherwise downloads KleidiAI while CMake is configuring. Prefer a
+# verified local release tree when one has been staged so the Android build is
+# not coupled to a nested network request.
+if(EXISTS "${KLEIDIAI_DIR}/CMakeLists.txt")
+  set(FETCHCONTENT_SOURCE_DIR_KLEIDIAI "${KLEIDIAI_DIR}" CACHE PATH "" FORCE)
 endif()
 
 # Build flags measured on device, not inherited. See docs/SCENE_MODE_VLM.md §4.1

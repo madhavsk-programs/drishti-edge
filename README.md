@@ -110,7 +110,9 @@ ms** for SegFormer (`BUILD_PLAN.md` §3.5).
 Explore Mode is also local now: its former JPEG upload/retry path has been
 deleted. A device instrumented test on the 12 GB iQOO reads a generated
 `BUS 42A` sign and extracts route `42A`; walking safety inference remains active
-during the one-shot read.
+during the one-shot read. Scene and OCR stills are centre-cropped to the same
+`FILL_CENTER` viewport shown on screen, so both features analyse what the user
+actually aimed at rather than off-screen sensor pixels.
 
 **Find and Ask are local too.** Target locating resolves from landmark memory
 and the live detector view with no model call of its own, and Scene questions
@@ -119,6 +121,12 @@ answer on device, with the model freed before the call returns. The `/vlm/*`,
 `/walk/analyze` and `/explore` endpoints have been **deleted from the client**,
 not disabled: there is no longer a code path from a user gesture to the
 network.
+
+The general Scene question is grounded for the small model: it checks for a
+visible person first, reports only clearly visible objects/text, and says when
+it is uncertain. A real-image device regression covers three people scenes,
+including a dark off-centre subject, in addition to the sign and cancellation
+tests.
 
 Memory is budgeted for the **12 GB** device variant and has now been exercised
 on both 12 GB and 16 GB iQOO 15 units. Every model choice has a
@@ -171,7 +179,9 @@ npm run typecheck
 ### Android client
 
 Scene Mode builds llama.cpp from a pinned revision, which is fetched rather
-than vendored:
+than vendored. The bootstrap also stages llama.cpp's pinned KleidiAI 1.24.0
+release after verifying its archive digest, avoiding a hidden download during
+CMake configuration:
 
 ```bash
 ./scripts/bootstrap_llama.sh

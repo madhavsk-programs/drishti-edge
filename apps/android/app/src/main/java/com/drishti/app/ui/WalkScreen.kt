@@ -129,10 +129,15 @@ fun WalkScreen(
                     PreviewView(ctx).apply {
                         implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                         scaleType = PreviewView.ScaleType.FILL_CENTER
+                        addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
+                            controller?.updatePreviewViewport(right - left, bottom - top)
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
-                update = { view -> controller?.attachPreview(view.surfaceProvider) },
+                update = { view ->
+                    controller?.attachPreview(view.surfaceProvider, view.width, view.height)
+                },
             )
             OverlayCanvas(
                 geometry = state.geometry,

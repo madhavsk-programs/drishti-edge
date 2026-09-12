@@ -20,12 +20,15 @@ class ExploreController(
 ) {
     /** @return the read result on success (for on-screen display), else null. */
     suspend fun readTextOnce(): ReadTextResponse? {
+        Log.i(TAG, "starting local OCR capture")
         speech.say(strings.string(R.string.explore_listening), flush = true)
         val jpeg = pipeline.captureStill(maxWidth = 2048)
         if (jpeg == null) {
+            Log.e(TAG, "OCR capture returned no JPEG")
             speech.say(strings.string(R.string.explore_unavailable), flush = true)
             return null
         }
+        Log.i(TAG, "OCR captured ${jpeg.size} JPEG bytes")
         return runCatching { reader.read(jpeg) }.fold(
             onSuccess = { response ->
                 Log.i(

@@ -229,8 +229,10 @@ Java_com_drishti_app_scene_SceneVlm_nativeAsk(
     // missing a backpack when captioning freely and finding it when asked.
     const std::string marker = mtmd_default_marker();
     const std::string prompt =
-        "<|im_start|>system\nYou are a concise assistant for a blind pedestrian. "
-        "Answer in one short sentence.<|im_end|>\n"
+        "<|im_start|>system\nYou are a careful visual assistant for a blind pedestrian. "
+        "Inspect the image before answering. If people are visible, report them first. "
+        "Mention only clearly visible objects or readable text; never invent details. "
+        "If uncertain, say so. Answer in one short sentence.<|im_end|>\n"
         "<|im_start|>user\n" + marker + "\n" + jstr(env, jPrompt) + "<|im_end|>\n"
         "<|im_start|>assistant\n";
 

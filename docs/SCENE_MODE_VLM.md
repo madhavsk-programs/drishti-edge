@@ -550,12 +550,46 @@ exposes no abort hook for it — and that pass is under 0.6 s on this phone.
   it; `adb shell svc power stayon usb` before a batch.
 - Step logging (`step: …`, per-chunk lines) is kept at INFO. It is a handful
   of lines per Ask and it is how a regression would be seen first.
+- `scripts/bootstrap_llama.sh` also stages KleidiAI 1.24.0 and verifies the
+  upstream archive MD5 (`2f02ebe29573d45813e671eb304f2a00`). If that local
+  tree is present, CMake uses it instead of attempting a nested network fetch.
 
-### 8.5 Still open in Scene / Ask
+### 8.5 Live person misclassification — fixed at the viewport boundary
 
-- `TargetLocator` still calls the dead `/vlm/locate` endpoint and will report
-  `Connection lost`. Find must resolve from landmark memory on device
-  (`BUILD_PLAN.md` A5/A10); that work has not started.
-- Staged on the phone: `lfm25-vl-450m-q4km.gguf` (229,313,568 B) and
-  `lfm25-vl-450m-mmproj-q8.gguf` (102,815,168 B) alongside the four
-  YOLO/SegFormer files.
+The final 16 GB build produced both of these answers on live camera frames:
+
+- correct: “A man wearing a light-colored shirt and a lanyard with a badge.”
+- wrong: “A wooden table with a book and a small object on it.” while the
+  operator saw a person on screen.
+
+That was not a detector fallback: Scene Mode's answer came from the VLM. It was
+also not a globally broken RGB/JNI path, because the same binary recognized the
+first man and every generated sign. The integration mismatch was between what
+the user saw and what the model received. `PreviewView.ScaleType.FILL_CENTER`
+centre-crops a 4:3 camera stream substantially on the phone's tall display, but
+`ImageCapture` was sending the uncropped full sensor still. Objects outside the
+visible preview could dominate a 450M captioner, while the aimed person/text was
+smaller than it appeared on screen.
+
+`CameraFramePipeline.captureStill` now records the laid-out preview aspect,
+centre-crops in the encoded orientation, then rotates and applies the existing
+resolution bound. The same correction applies to Scene, OCR, and consented
+hazard evidence. The VLM system instruction now reports people first, mentions
+only clearly visible objects/text, and admits uncertainty. The default question
+is explicit: first decide whether any person is visible anywhere, then describe
+the person and the main objects.
+
+The real-image regression stages three COCO person fixtures beside the GGUFs
+rather than shipping photographs in the app. One is dark and off-centre. The
+old spatial wording produced the contradictory “There are no people … a person
+in the foreground”; the final question rejects that answer and produced three
+positive person descriptions in **1.45–1.61 s** on the 16 GB phone. The test is
+`stagedPersonFixturesAreRecognisedAsPeople`.
+
+Find is no longer open here: `TargetLocator` resolves from on-device landmark
+memory and the live detector view (commits `d2897ab` / `4877d22`). The physical
+Explore run on the installed build also passed end to end: the two-finger-right
+gesture captured a viewport-aligned still, ML Kit decoded 50 characters at
+`HIGH` quality in 141.90 ms, and the blocking speech path played the result.
+Trace logs distinguish gesture, capture, recognition, and readout failures
+without adding app controls or logging the recognized text.

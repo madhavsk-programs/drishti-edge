@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.util.Log
 import android.util.Size
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -23,6 +24,33 @@ import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
+import kotlin.math.roundToInt
+
+internal data class CenterCrop(
+    val left: Int,
+    val top: Int,
+    val width: Int,
+    val height: Int,
+)
+
+/** Centre crop [width]x[height] to [targetAspect] without stretching. */
+internal fun centerCrop(width: Int, height: Int, targetAspect: Float?): CenterCrop {
+    val full = CenterCrop(0, 0, width, height)
+    if (width <= 0 || height <= 0 || targetAspect == null ||
+        !targetAspect.isFinite() || targetAspect <= 0f
+    ) return full
+
+    val sourceAspect = width.toFloat() / height
+    if (abs(sourceAspect - targetAspect) < 0.001f) return full
+    return if (sourceAspect > targetAspect) {
+        val croppedWidth = (height * targetAspect).roundToInt().coerceIn(1, width)
+        CenterCrop((width - croppedWidth) / 2, 0, croppedWidth, height)
+    } else {
+        val croppedHeight = (width / targetAspect).roundToInt().coerceIn(1, height)
+        CenterCrop(0, (height - croppedHeight) / 2, width, croppedHeight)
+    }
+}
 
 /**
  * Owns the CameraX use cases for Walk Mode. Bound to the foreground Service's
@@ -46,6 +74,7 @@ class CameraFramePipeline(private val context: Context) {
      * use case exists.
      */
     @Volatile private var surfaceProvider: Preview.SurfaceProvider? = null
+    @Volatile private var previewAspectRatio: Float? = null
 
     @Volatile private var frameSink: ((ImageProxy) -> Unit)? = null
 
@@ -96,12 +125,17 @@ class CameraFramePipeline(private val context: Context) {
         }
     }
 
-    fun attachPreview(provider: Preview.SurfaceProvider) {
+    fun attachPreview(provider: Preview.SurfaceProvider, viewportWidth: Int, viewportHeight: Int) {
         surfaceProvider = provider
+        updatePreviewViewport(viewportWidth, viewportHeight)
         val p = preview ?: return
         androidx.core.content.ContextCompat.getMainExecutor(context).execute {
             p.surfaceProvider = provider
         }
+    }
+
+    fun updatePreviewViewport(width: Int, height: Int) {
+        if (width > 0 && height > 0) previewAspectRatio = width.toFloat() / height
     }
 
     fun detachPreview() {
@@ -128,7 +162,12 @@ class CameraFramePipeline(private val context: Context) {
         analysisExecutor.shutdown()
     }
 
-    /** One high-resolution still as an upright JPEG, for OCR / hazard evidence. */
+    /**
+     * One high-resolution still as an upright JPEG, centre-cropped to the
+     * visible `FILL_CENTER` preview. Without that crop Scene/OCR analyse pixels
+     * outside what the user aimed at, and the visible subject is needlessly
+     * shrunk inside the full sensor frame.
+     */
     suspend fun captureStill(maxWidth: Int, quality: Int = 80): ByteArray? {
         val imageCapture = capture ?: return null
         return suspendCancellableCoroutine { cont ->
@@ -136,7 +175,11 @@ class CameraFramePipeline(private val context: Context) {
                 analysisExecutor,
                 object : ImageCapture.OnImageCapturedCallback() {
                     override fun onCaptureSuccess(image: ImageProxy) {
-                        val bytes = runCatching { image.toUprightJpeg(maxWidth, quality) }.getOrNull()
+                        val bytes = runCatching {
+                            image.toUprightJpeg(maxWidth, quality, previewAspectRatio)
+                        }.onFailure {
+                            Log.e(TAG, "still conversion failed", it)
+                        }.getOrNull()
                         image.close()
                         if (cont.isActive) cont.resume(bytes)
                     }
@@ -149,26 +192,52 @@ class CameraFramePipeline(private val context: Context) {
         }
     }
 
-    private fun ImageProxy.toUprightJpeg(maxWidth: Int, quality: Int): ByteArray? {
+    private fun ImageProxy.toUprightJpeg(
+        maxWidth: Int,
+        quality: Int,
+        uprightViewportAspect: Float?,
+    ): ByteArray? {
         val raw = planes[0].buffer.let { buf -> ByteArray(buf.remaining()).also { buf.get(it) } }
         var bmp = BitmapFactory.decodeByteArray(raw, 0, raw.size) ?: return null
         val rotation = imageInfo.rotationDegrees
-        val longest = maxOf(bmp.width, bmp.height)
+        // Crop in the encoded orientation before rotation to avoid allocating a
+        // full-resolution upright bitmap. A 90/270-degree rotation inverts the
+        // aspect ratio.
+        val encodedTargetAspect = uprightViewportAspect?.let {
+            if (rotation % 180 == 0) it else 1f / it
+        }
+        val crop = centerCrop(bmp.width, bmp.height, encodedTargetAspect)
+        val longest = maxOf(crop.width, crop.height)
         val scale = if (longest > maxWidth) maxWidth.toFloat() / longest else 1f
-        if (rotation != 0 || scale != 1f) {
+        if (crop.width != bmp.width || crop.height != bmp.height || rotation != 0 || scale != 1f) {
             val m = Matrix()
             if (scale != 1f) m.postScale(scale, scale)
             if (rotation != 0) m.postRotate(rotation.toFloat())
-            val next = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
+            val next = Bitmap.createBitmap(
+                bmp,
+                crop.left,
+                crop.top,
+                crop.width,
+                crop.height,
+                m,
+                true,
+            )
             if (next != bmp) bmp.recycle()
             bmp = next
         }
+        Log.i(
+            TAG,
+            "still ${crop.width}x${crop.height} -> ${bmp.width}x${bmp.height}, " +
+                "rotation=$rotation, viewportAspect=$uprightViewportAspect",
+        )
         return ByteArrayOutputStream().use { out ->
             bmp.compress(Bitmap.CompressFormat.JPEG, quality, out)
             bmp.recycle()
             out.toByteArray()
         }
     }
+
+    private companion object { const val TAG = "CameraFramePipeline" }
 }
 
 private suspend fun <T> ListenableFuture<T>.await(): T =

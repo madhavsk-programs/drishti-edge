@@ -594,7 +594,11 @@ class WalkController(
     private var exploreClearJob: Job? = null
 
     fun triggerExplore() = scope.launch {
-        if (_state.value.mode != WalkMode.WALKING) return@launch
+        Log.i(TAG, "Explore requested in mode=${_state.value.mode}")
+        if (_state.value.mode != WalkMode.WALKING) {
+            Log.w(TAG, "Explore ignored outside WALKING")
+            return@launch
+        }
         _state.value = _state.value.copy(mode = WalkMode.READING)
         spatial.clear()
         haptic.ack()
@@ -737,7 +741,13 @@ class WalkController(
 
     // ---- preview surface (Activity attaches/detaches) --------------------
 
-    fun attachPreview(surfaceProvider: Preview.SurfaceProvider) = pipeline.attachPreview(surfaceProvider)
+    fun attachPreview(
+        surfaceProvider: Preview.SurfaceProvider,
+        viewportWidth: Int,
+        viewportHeight: Int,
+    ) = pipeline.attachPreview(surfaceProvider, viewportWidth, viewportHeight)
+
+    fun updatePreviewViewport(width: Int, height: Int) = pipeline.updatePreviewViewport(width, height)
     fun detachPreview() = pipeline.detachPreview()
 
     private fun parseInstant(value: String): Instant =

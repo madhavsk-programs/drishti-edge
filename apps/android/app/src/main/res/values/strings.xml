@@ -56,7 +56,7 @@
     <!-- VLM scene description / Q&A (on-demand, slow local model) -->
     <string name="vlm_prompt_ask">Ask about the scene, or say find and a place.</string>
     <string name="vlm_no_speech">I didn\'t catch that. Describing what is ahead.</string>
-    <string name="vlm_default_prompt">Describe what is directly in front of me, briefly.</string>
+    <string name="vlm_default_prompt">Is any person visible anywhere in this image? If yes, begin by describing the person. Then name the main clearly visible objects. Do not guess.</string>
     <string name="vlm_working">Working on it. Hold still.</string>
     <string name="vlm_unavailable">Scene description is not available right now.</string>
     <string name="vlm_busy">The scene assistant is busy. Try again.</string>

@@ -49,7 +49,8 @@
     <!-- VLM दृश्य वर्णन / प्रश्न-उत्तर (माँग पर, धीमा स्थानीय मॉडल) -->
     <string name="vlm_prompt_ask">दृश्य के बारे में पूछें, या ढूंढो और कोई जगह बोलें।</string>
     <string name="vlm_no_speech">मैं समझ नहीं पाया। सामने क्या है, बता रहा हूँ।</string>
-    <string name="vlm_default_prompt">मेरे ठीक सामने जो है उसका संक्षेप में वर्णन करें।</string>
+    <string name="vlm_default_prompt">क्या इस तस्वीर में कोई व्यक्ति कहीं भी दिखाई दे रहा है? यदि हाँ, पहले उस व्यक्ति का वर्णन करें। फिर केवल साफ़ दिखाई देने वाली मुख्य वस्तुएँ बताएं। अनुमान न लगाएं।</string>
+    <string name="vlm_low_memory">अभी दृश्य का वर्णन करने के लिए पर्याप्त खाली मेमोरी नहीं है।</string>
     <string name="vlm_working">काम हो रहा है। स्थिर रहें।</string>
     <string name="vlm_unavailable">दृश्य वर्णन अभी उपलब्ध नहीं है।</string>
     <string name="vlm_busy">दृश्य सहायक व्यस्त है। फिर कोशिश करें।</string>

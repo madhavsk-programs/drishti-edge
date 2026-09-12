@@ -5,9 +5,11 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.ByteArrayOutputStream
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -33,6 +35,48 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class SceneVlmDeviceTest {
+
+    /**
+     * Optional real-image regression probe. Fixtures are deliberately staged
+     * beside the model instead of becoming production assets. This keeps a
+     * repeatable semantic test available without adding test UI or shipping
+     * photographs in the app.
+     */
+    @Test
+    fun stagedPersonFixturesAreRecognisedAsPeople() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val vlm = SceneVlm.create(context)
+        assumeTrue("Scene VLM models are not staged on this device", vlm != null)
+        val fixtureDir = context.getExternalFilesDir(null)!!
+        val fixtures = listOf(
+            File(fixtureDir, "scene-person-036.jpg"),
+            File(fixtureDir, "scene-person-474.jpg"),
+            File(fixtureDir, "scene-person-589.jpg"),
+        ).filter(File::isFile)
+        assumeTrue("No staged scene-person fixtures", fixtures.isNotEmpty())
+
+        fixtures.forEach { fixture ->
+            val image = SceneImage.fromJpeg(fixture.readBytes())!!
+            val result = vlm!!.ask(
+                image.rgb,
+                image.width,
+                image.height,
+                "Is any person visible anywhere in this image? If yes, begin by describing the person. " +
+                    "Then name the main clearly visible objects. Do not guess.",
+            )
+            Log.i("SceneVlmFixture", "${fixture.name}: $result")
+            assertTrue("${fixture.name} failed: $result", result is SceneVlm.Result.Answer)
+            val answer = (result as SceneVlm.Result.Answer).text.lowercase()
+            assertTrue(
+                "${fixture.name} contradicted the visible person: '$answer'",
+                listOf("no person", "no people", "nobody").none(answer::contains),
+            )
+            assertTrue(
+                "${fixture.name} did not identify a person: '$answer'",
+                listOf("person", "people", "man", "woman", "boy", "girl", "child").any(answer::contains),
+            )
+        }
+    }
 
     private fun sign(text: String): ByteArray {
         val bitmap = Bitmap.createBitmap(640, 480, Bitmap.Config.ARGB_8888)

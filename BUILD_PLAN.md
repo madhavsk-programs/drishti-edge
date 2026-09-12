@@ -33,7 +33,7 @@ frame at **63.63 ms**. The result is not specific to one handset or one export.
 | Segmentation | SegFormer-B0 ADE20K, every 3rd frame, **guarded NPU rung**. Probe: **11.33 ms NPU vs 150.25 ms CPU** on a public fixture |
 | Guidance | Reaches reasoned verdicts — `CENTRE_BLOCKED_DIRECTION_UNCLEAR` with left walkable and centre blocked, not a generic pause |
 | Network in the walk path | **None.** `api.analyze`, the multipart assembly and the retry loop are deleted, not toggled |
-| Tests | **72 unit tests, 0 failures**, plus on-device tests: 1 OCR, 2 Scene VLM (answer + mid-prefill cancellation) |
+| Tests | **75 unit tests, 0 failures**, plus on-device tests: 1 OCR, 3 Scene VLM (answer, cancellation, real people), and 1 two-finger Explore gesture |
 
 ### Cards complete
 
@@ -60,6 +60,28 @@ Shipping configuration, both load-bearing: `-DCMAKE_BUILD_TYPE=Release` for
 the native build in every variant, and flash attention **disabled** on both
 the llama and the CLIP context. Neither is a tuning choice.
 
+### Live Scene/OCR debug — 12 September 2026
+
+The final 16 GB build exposed a real integration failure after feature
+completion: a frame the operator saw as one person was answered as a table and
+chair. The same binary identified another man correctly, so the RGB/JNI/model
+path was not globally broken. The important mismatch was the camera viewport:
+the on-screen `FILL_CENTER` preview is cropped heavily on a tall phone, while
+Scene and OCR were receiving the full sensor still. They could therefore
+analyse furniture outside the visible preview and shrink the aimed subject.
+
+One-shot captures now centre-crop to the current visible preview aspect before
+the existing resolution bound. Scene's general prompt also asks explicitly
+whether any person is visible anywhere, reports people first, and forbids
+invented objects. Three fixed real-person COCO fixtures — including a dark,
+off-centre person — pass on the 16 GB phone at **1.45–1.61 s**; the regression
+rejects contradictory answers such as “no people … a person”. The bundled OCR
+recognizer and the real two-finger-right gesture pass independently. A
+physical run on the installed build also completed the full gesture ->
+viewport-aligned capture -> OCR -> speech path: it decoded 50 characters at
+`HIGH` quality in **141.90 ms** and held the readout until speech completed. No
+backend or connection-retry path was involved.
+
 ### NEXT AGENT — start here
 
 The two demo-runbook gaps are closed:
@@ -73,6 +95,10 @@ The two demo-runbook gaps are closed:
   YOLO on the CPU and back, which is runbook steps 1 and 9. **Verify the two
   gestures on device** — they are the one part not covered by an automated
   test.
+- **Scene/OCR viewport alignment is fixed and installed.** The real-camera
+  Explore path is verified end to end. Keep using the existing gestures and
+  inspect `CameraFramePipeline`, `WalkController`, and `ExploreController`
+  logs for future regressions; do not add a test button.
 
 What is left, in order:
 
