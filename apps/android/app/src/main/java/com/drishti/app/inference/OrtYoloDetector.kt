@@ -252,6 +252,31 @@ class OrtYoloDetector private constructor(
         }
 
         /**
+         * The CPU rung on its own, forced. Not part of the runtime ladder: this
+         * exists for the diagnostics panel's side-by-side, where the operator
+         * toggles the same model onto the CPU to show the NPU's millisecond
+         * count against it (BUILD_PLAN.md §5.2 step 9). Returns an
+         * [UnavailableDetector] rather than throwing when the CPU model is
+         * absent, so a toggle can fail quietly.
+         */
+        fun createCpuOnly(context: Context, settings: PipelineSettings): OnDeviceDetector {
+            val env = OrtEnvironment.getEnvironment()
+            val cpuModel = File(context.getExternalFilesDir(null), CPU_MODEL)
+            if (!cpuModel.isFile) {
+                return UnavailableDetector("No $CPU_MODEL staged for the CPU comparison.")
+            }
+            return try {
+                open(
+                    env, cpuModel, settings, InferenceBackend.CPU,
+                    "YOLO11n on the CPU (diagnostics comparison).",
+                ) { }
+            } catch (exc: Throwable) {
+                Log.e(TAG, "CPU comparison rung failed", exc)
+                UnavailableDetector("CPU comparison unavailable: ${exc.javaClass.simpleName}.")
+            }
+        }
+
+        /**
          * `libQnnHtpV81Skel.so` executes on the DSP, not the CPU, so the normal
          * linker never finds it. Missing this presents as a generic backend init
          * failure with no mention of the DSP (BUILD_PLAN.md §3.4).

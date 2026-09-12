@@ -5,6 +5,7 @@ import com.drishti.app.net.FrameGeometry
 import com.drishti.app.net.GuidanceContract
 import com.drishti.app.net.OcrConfidenceQualification
 import com.drishti.app.net.OverlayContract
+import com.drishti.app.inference.InferenceBackend
 import com.drishti.app.net.TargetTrackingTelemetry
 
 enum class WalkMode { STARTING, WALKING, PAUSED, READING, DESCRIBING, SOS, STOPPED, ERROR }
@@ -28,6 +29,25 @@ data class SceneCard(
     val shownAtMs: Long,
 )
 
+/**
+ * The on-device inference diagnostics (ARCHITECTURE.md §7.3), surfaced in one
+ * gesture. This is the demo's opening and closing claim and its best evidence
+ * prop: which accelerator actually ran, how long it took, and the device's
+ * live thermal and memory headroom.
+ */
+data class Diagnostics(
+    val visible: Boolean = false,
+    val backend: InferenceBackend = InferenceBackend.UNAVAILABLE,
+    val backendDetail: String = "",
+    val canCompareBackend: Boolean = false,
+    val detectionMs: Double? = null,
+    val segmentationMs: Double? = null,
+    val totalMs: Double? = null,
+    val fps: Double? = null,
+    val availMemMb: Long? = null,
+    val thermal: String? = null,
+)
+
 /** Everything the Walk UI renders. Emitted as a StateFlow by [WalkController]. */
 data class WalkUiState(
     val mode: WalkMode = WalkMode.STARTING,
@@ -49,4 +69,5 @@ data class WalkUiState(
     val scene: SceneCard? = null,
     /** Latest Ask -> Guide target telemetry from the backend; null until first frame. */
     val target: TargetTrackingTelemetry? = null,
+    val diagnostics: Diagnostics = Diagnostics(),
 )

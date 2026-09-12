@@ -62,22 +62,29 @@ the llama and the CLIP context. Neither is a tuning choice.
 
 ### NEXT AGENT — start here
 
-Two things the demo runbook (Part 5) calls for do not exist yet, and by this
-plan's own cut order (§6.2) both outrank the VLM:
+The two demo-runbook gaps are closed:
 
-1. **Find from landmark memory (A5 + A10, E7).** `TargetLocator` still posts
-   to the dead `/vlm/locate` and reports `Connection lost`; runbook step 7
-   cannot be performed. Resolution order is landmark memory → live
-   detections, no VLM, and target cues are **dropped, not queued** whenever
-   the risk action is anything but `CLEAR`.
-2. **The diagnostics panel (A7).** Runbook steps 1 and 9 open and close on it
-   — backend in use, inference ms, rolling FPS, thermal, `availMem`, and the
-   NPU/CPU toggle that makes the millisecond count collapse on stage. Today
-   `WalkUiState` carries `lastTotalMs` and nothing else.
+- **Find runs on the phone** (A5 + A10). Landmark memory and turn-by-turn
+  target guidance are ported and unit-tested; `TargetLocator` resolves from
+  memory then the live view, no VLM, no network. Runbook step 7 works.
+- **The diagnostics panel exists** (A7, ARCHITECTURE.md §7.3). Two-finger
+  swipe down shows backend / detect ms / segment ms / total ms / FPS /
+  thermal / free RAM; the panel's "Compare on CPU" control runs the same
+  YOLO on the CPU and back, which is runbook steps 1 and 9. **Verify the two
+  gestures on device** — they are the one part not covered by an automated
+  test.
 
-Then: delete the dead routes in `DrishtiApi` (`/walk/analyze`, `/explore`,
-`/vlm/*`) so nobody finds one at hour 26 and mistakes it for a dependency; the
-soak and §23.2 checks (E9) on the Release build; freeze and rehearsal (E11).
+What is left, in order:
+
+1. **E9 soak + the §23.2 functional checks on the Release build**, now that
+   Scene, Find and diagnostics have all landed. Never cut.
+2. **E11 freeze at T+27 h**, rehearsal, evidence pack. Never cut.
+3. Optional: the accelerator scheduler's serialisation test (A7's other
+   half) if time allows; the walk loop already serialises through
+   `inferenceLock`, so this is belt-and-braces, not a gap.
+
+The coordinator (A9/E8) is still absent and stays the lowest priority: it
+only backs the dashboard, and the demo's key beat is turning it off.
 
 Standing constraints, unchanged:
 
@@ -2320,6 +2327,8 @@ adb shell cat /proc/meminfo | head -3
 | Start / stop | Walk |
 | Explore gesture | One OCR read, then back to Walk |
 | Ask gesture + spoken phrase | Find (landmark memory) or Scene |
+| Two-finger swipe **down** | Show / hide the diagnostics panel |
+| Tap "Compare on CPU" in the panel | Run the same detector on the CPU, and back |
 | SOS | Alert |
 
 Walk Mode is **screen-on** for this build (`ARCHITECTURE.md` §2.5). Keep

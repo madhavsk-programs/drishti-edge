@@ -57,6 +57,12 @@ class LocalWalkPipeline(
      * guidance cadence usable (ARCHITECTURE.md §17.3).
      */
     private val segmentationStride: Int = 1,
+    /**
+     * Builds a CPU-only detector on demand for the diagnostics side-by-side
+     * (BUILD_PLAN.md §5.2 step 9). Null disables the toggle; when it is set the
+     * CPU detector is created on first use and kept until [close].
+     */
+    private val cpuDetectorFactory: (() -> OnDeviceDetector)? = null,
 ) {
     private var lastSurfaces: SurfaceEvidence? = null
     private var lastSegmentationMillis: Double? = null
@@ -85,9 +91,39 @@ class LocalWalkPipeline(
     var lastFrameMillis: Long = 0L
         private set
 
+    // The NPU rung is resident; the CPU one is built lazily only if the
+    // operator asks to compare. `activeDetector` is what process() actually
+    // calls, so the toggle changes the backend without a session restart.
+    @Volatile private var forceCpu = false
+    private var cpuDetector: OnDeviceDetector? = null
+    private val activeDetector: OnDeviceDetector
+        get() = if (forceCpu) (cpuDetector ?: detector) else detector
+
     /** Surfaced in diagnostics; the §6.2 evidence set reads this. */
-    val backend: InferenceBackend get() = detector.backend
-    val detail: String get() = detector.detail
+    val backend: InferenceBackend get() = activeDetector.backend
+    val detail: String get() = activeDetector.detail
+
+    /** True when a CPU comparison is available to toggle to. */
+    val canCompareBackend: Boolean get() = cpuDetectorFactory != null
+
+    /**
+     * Flip between the resident NPU rung and a CPU run of the same model,
+     * for the diagnostics comparison. The CPU detector is built on first use.
+     * @return the backend now active.
+     */
+    fun toggleBackend(): InferenceBackend {
+        if (!forceCpu) {
+            if (cpuDetector == null) cpuDetector = cpuDetectorFactory?.invoke()
+            val cpu = cpuDetector
+            if (cpu == null || cpu.backend == InferenceBackend.UNAVAILABLE) {
+                return detector.backend
+            }
+            forceCpu = true
+        } else {
+            forceCpu = false
+        }
+        return activeDetector.backend
+    }
 
     @Volatile
     var lastInferenceMillis: Double = 0.0
@@ -101,7 +137,7 @@ class LocalWalkPipeline(
         headingDegrees: Double? = null,
     ): FrameAnalysisResponse {
         val started = System.nanoTime()
-        val outcome = detector.detect(frame)
+        val outcome = activeDetector.detect(frame)
         lastInferenceMillis = outcome.stats.inferenceMillis
 
         // Landmark memory reads the full COCO view straight off the detector,
@@ -270,6 +306,7 @@ class LocalWalkPipeline(
 
     fun close() {
         detector.close()
+        cpuDetector?.close()
         segmenter?.close()
     }
 

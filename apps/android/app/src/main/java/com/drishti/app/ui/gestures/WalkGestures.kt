@@ -25,6 +25,7 @@ fun Modifier.walkGestures(
     onThreeFingerTap: () -> Unit,
     onTwoFingerSwipeUp: () -> Unit,
     onTwoFingerSwipeRight: () -> Unit,
+    onTwoFingerSwipeDown: () -> Unit,
 ): Modifier = composed {
     val vc = LocalViewConfiguration.current
     val touchSlop = vc.touchSlop
@@ -67,6 +68,7 @@ fun Modifier.walkGestures(
                 when {
                     maxPointers >= 3 -> onThreeFingerTap()
                     maxPointers == 2 && moved && abs(dy) > abs(dx) && dy < -touchSlop * 6 -> onTwoFingerSwipeUp()
+                    maxPointers == 2 && moved && abs(dy) > abs(dx) && dy > touchSlop * 6 -> onTwoFingerSwipeDown()
                     maxPointers == 2 && moved && abs(dx) > abs(dy) && dx > touchSlop * 6 -> onTwoFingerSwipeRight()
                     maxPointers == 2 && !moved -> onTwoFingerTap()
                 }

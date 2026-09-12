@@ -7,12 +7,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -118,6 +120,7 @@ fun WalkScreen(
                 onThreeFingerTap = { controller?.armHazard() },
                 onTwoFingerSwipeUp = { controller?.armHazard() },
                 onTwoFingerSwipeRight = { controller?.triggerExplore() },
+                onTwoFingerSwipeDown = { controller?.toggleDiagnostics() },
             ),
     ) {
         if (settings.visualLayerEnabled && !state.screenBlank && hasCamera) {
@@ -177,9 +180,77 @@ fun WalkScreen(
             )
         }
 
+        if (state.diagnostics.visible && !state.screenBlank) {
+            DiagnosticsPanel(
+                d = state.diagnostics,
+                onToggleBackend = { controller?.toggleBackend() },
+                modifier = Modifier.align(Alignment.TopEnd),
+            )
+        }
+
         if (state.screenBlank) {
             Box(modifier = Modifier.fillMaxSize().background(DrishtiBlack))
         }
+    }
+}
+
+@Composable
+private fun DiagnosticsPanel(
+    d: com.drishti.app.walk.Diagnostics,
+    onToggleBackend: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val onNpu = d.backend == com.drishti.app.inference.InferenceBackend.NPU
+    Column(
+        modifier = modifier
+            .padding(12.dp)
+            .background(DrishtiBlack.copy(alpha = 0.72f), RoundedCornerShape(10.dp))
+            .border(1.dp, DrishtiWhite.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+    ) {
+        Text(
+            text = "DIAGNOSTICS",
+            color = DrishtiWhite.copy(alpha = 0.6f),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+        )
+        DiagRow("Backend", d.backend.name, if (onNpu) DrishtiGreen else DrishtiYellow)
+        d.detectionMs?.let { DiagRow("Detect", "${it.toInt()} ms", DrishtiWhite) }
+        d.segmentationMs?.let { DiagRow("Segment", "${it.toInt()} ms", DrishtiWhite) }
+            ?: DiagRow("Segment", "reused", DrishtiWhite.copy(alpha = 0.6f))
+        d.totalMs?.let { DiagRow("Total", "${it.toInt()} ms", DrishtiWhite) }
+        d.fps?.let { DiagRow("FPS", "%.1f".format(it), DrishtiWhite) }
+        d.thermal?.let {
+            DiagRow("Thermal", it, if (it == "nominal" || it == "light") DrishtiGreen else DrishtiYellow)
+        }
+        d.availMemMb?.let { DiagRow("Free RAM", "$it MB", DrishtiWhite) }
+        if (d.canCompareBackend) {
+            Text(
+                text = if (onNpu) "▸ Compare on CPU" else "▸ Back to NPU",
+                color = DrishtiYellow,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .clickable { onToggleBackend() }
+                    .semantics { contentDescription = "Toggle inference backend" },
+            )
+        }
+    }
+}
+
+@Composable
+private fun DiagRow(label: String, value: String, valueColor: androidx.compose.ui.graphics.Color) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, color = DrishtiWhite.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium)
+        Text(
+            value, color = valueColor, fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(start = 20.dp),
+        )
     }
 }
 

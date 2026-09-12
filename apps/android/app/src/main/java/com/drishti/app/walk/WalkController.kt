@@ -1,6 +1,8 @@
 package com.drishti.app.walk
 
 import android.content.Context
+import android.app.ActivityManager
+import android.os.PowerManager
 import android.util.Log
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -184,6 +186,7 @@ class WalkController(
     private var announcedSurfaceDegraded = false
     private var lastTargetSpeech: String? = null
     private var loggedFirstLocalFrame = false
+    private val frameStampsMs = ArrayDeque<Long>()
 
     private var tickers = mutableListOf<Job>()
     private var boundOwner: LifecycleOwner? = null
@@ -226,6 +229,15 @@ class WalkController(
                 // Detection every frame, surfaces every 3rd. Surfaces change far
                 // more slowly than the obstacles standing on them.
                 segmentationStride = 3,
+                // The diagnostics side-by-side runs the same model on the CPU.
+                cpuDetectorFactory = { OrtYoloDetector.createCpuOnly(app, PipelineSettings()) },
+            )
+            _state.value = _state.value.copy(
+                diagnostics = _state.value.diagnostics.copy(
+                    backend = detector.backend,
+                    backendDetail = detector.detail,
+                    canCompareBackend = localPipeline?.canCompareBackend == true,
+                ),
             )
 
             freshness.reset()
@@ -313,6 +325,12 @@ class WalkController(
             while (isActive) {
                 delay(20_000)
                 if (_state.value.mode == WalkMode.WALKING) nearby.poll(settings)
+            }
+        }
+        tickers += scope.launch {
+            while (isActive) {
+                if (_state.value.diagnostics.visible) pollDeviceHealth()
+                delay(2_000)
             }
         }
     }
@@ -439,6 +457,14 @@ class WalkController(
             lastTotalMs = resp.timings.totalMs,
             reason = strings.reasonText(resp.guidance),
             message = null,
+            diagnostics = _state.value.diagnostics.copy(
+                backend = localPipeline?.backend ?: _state.value.diagnostics.backend,
+                backendDetail = localPipeline?.detail ?: _state.value.diagnostics.backendDetail,
+                detectionMs = resp.timings.detectionMs,
+                segmentationMs = resp.timings.segmentationMs,
+                totalMs = resp.timings.totalMs,
+                fps = rollingFps(System.currentTimeMillis()),
+            ),
         )
 
         val phrase = strings.speechFor(resp.guidance)
@@ -465,6 +491,66 @@ class WalkController(
      * cues can never preempt or delay a safety instruction. Target speech is
      * always QUEUE_ADD, never a flush.
      */
+    /** Frames per second over the last ~2 s of applied frames. */
+    private fun rollingFps(nowMs: Long): Double? {
+        frameStampsMs.addLast(nowMs)
+        while (frameStampsMs.size > 1 && nowMs - frameStampsMs.first() > 2_000) {
+            frameStampsMs.removeFirst()
+        }
+        if (frameStampsMs.size < 2) return null
+        val span = (frameStampsMs.last() - frameStampsMs.first()).coerceAtLeast(1)
+        return (frameStampsMs.size - 1) * 1000.0 / span
+    }
+
+    /** Show or hide the diagnostics overlay (two-finger swipe down). */
+    fun toggleDiagnostics() {
+        val d = _state.value.diagnostics
+        _state.value = _state.value.copy(diagnostics = d.copy(visible = !d.visible))
+        if (!d.visible) pollDeviceHealth()
+    }
+
+    /**
+     * Run the same detection model on the CPU instead of the NPU, and back.
+     * The demo's closing beat (BUILD_PLAN.md §5.2 step 9): the millisecond
+     * count collapses onto the CPU and recovers on the NPU.
+     */
+    fun toggleBackend() {
+        val pipeline = localPipeline ?: return
+        if (!pipeline.canCompareBackend) return
+        val now = pipeline.toggleBackend()
+        _state.value = _state.value.copy(
+            diagnostics = _state.value.diagnostics.copy(
+                backend = now,
+                backendDetail = pipeline.detail,
+            ),
+        )
+    }
+
+    private fun pollDeviceHealth() {
+        val am = app.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val info = ActivityManager.MemoryInfo()
+        am.getMemoryInfo(info)
+        val pm = app.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val thermal = pm?.currentThermalStatus?.let { thermalName(it) }
+        _state.value = _state.value.copy(
+            diagnostics = _state.value.diagnostics.copy(
+                availMemMb = info.availMem / (1024 * 1024),
+                thermal = thermal,
+            ),
+        )
+    }
+
+    private fun thermalName(status: Int): String = when (status) {
+        PowerManager.THERMAL_STATUS_NONE -> "nominal"
+        PowerManager.THERMAL_STATUS_LIGHT -> "light"
+        PowerManager.THERMAL_STATUS_MODERATE -> "moderate"
+        PowerManager.THERMAL_STATUS_SEVERE -> "severe"
+        PowerManager.THERMAL_STATUS_CRITICAL -> "critical"
+        PowerManager.THERMAL_STATUS_EMERGENCY -> "emergency"
+        PowerManager.THERMAL_STATUS_SHUTDOWN -> "shutdown"
+        else -> "unknown"
+    }
+
     private fun applyTargetTracking(raw: TargetTrackingTelemetry?) {
         if (raw == null) return
         // The engine leaves `speech` empty; the line is chosen here so it
