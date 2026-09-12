@@ -84,7 +84,37 @@ data class PipelineSettings(
      * stopping.
      */
     val freespaceBlockedMax: Double = 0.20,
-    val directionMinFreeExtent: Double = 0.35,
+    /**
+     * Free depth a side needs before anyone is steered into it.
+     *
+     * Re-anchored to [freespaceBlockedMax] when the measurement underneath it
+     * changed. Free depth used to be a median over corridor columns and is now
+     * the share of the corridor depth that stays mostly floor, so the old 0.35
+     * was calibrated against a different quantity. Half as much again as the
+     * value at which a corridor counts as BLOCKED leaves a real band between
+     * "not blocked" and "good enough to walk into".
+     *
+     * Swept at 0.25 / 0.30 / 0.35 over 44 captured Walk Mode frames: one
+     * decision moves, a frame whose left third carried 0.33 of free depth and
+     * almost no corridor cost, from "blocked, direction unclear" to "move left".
+     */
+    val directionMinFreeExtent: Double = 0.30,
+    /**
+     * How much more free depth one side needs than the other before free space
+     * is allowed to choose between them.
+     *
+     * Reached only when corridor COST cannot separate the sides — the margin
+     * test in `clearerSide` fails — and the alternative is telling the user the
+     * direction is unclear while one side plainly has floor running ahead and
+     * the other has none. Measured on a captured frame with costs 0.381 / 0.352
+     * / 0.448 (no cost margin) and free depth 0.430 / 0.000 / 0.000: the old
+     * answer was "stop, direction unclear", and the left was open carpet.
+     *
+     * Wide enough that noise in the segmentation cannot flip the advice from one
+     * frame to the next, and the winner still has to clear
+     * [directionMinFreeExtent] on its own before anyone is steered into it.
+     */
+    val directionFreeExtentMargin: Double = 0.20,
     val stairsCentreRatioThreshold: Double = 0.08,
 
     // Risk bands
@@ -152,6 +182,9 @@ data class PipelineSettings(
                 proximityMediumThreshold < proximityNearThreshold
         ) {
             "Proximity bands must be strictly increasing"
+        }
+        require(directionFreeExtentMargin > 0.0) {
+            "directionFreeExtentMargin must be positive or equal sides would pick one at random"
         }
         require(freespaceDeadEndMax <= freespaceBlockedMax) {
             "freespaceDeadEndMax must not exceed freespaceBlockedMax"

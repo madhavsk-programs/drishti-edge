@@ -30,6 +30,11 @@ class TrackingGoldenTest {
                 // Parity mode. Production coasts unmatched tracks for a few
                 // frames; the Python did not, and these vectors pin the Python.
                 coastFrames = 0,
+                // Parity mode. Production associates a strongly overlapping box
+                // with an existing track even under a different name and lets
+                // the names vote; the Python made a new track, which is what
+                // `new_id_when_label_differs` below pins.
+                crossLabelIouThreshold = null,
             )
             val frames = case.obj("input").arr("frames").map { it.jsonObject }
             val expectedFrames = case.arr("expected").map { it.jsonArray }

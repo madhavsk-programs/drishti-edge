@@ -133,7 +133,7 @@ fun selectAction(
     }
 
     if (centreBlocked) {
-        val preferred = clearerSide(corridor, settings.decisionMargin)
+        val preferred = clearerSide(corridor, settings)
         if (
             preferred in setOf(CorridorChoice.LEFT, CorridorChoice.RIGHT) &&
             preferred in corridor.walkableChoices &&
@@ -255,6 +255,14 @@ private fun noFloorAhead(
  * So a candidate must be in the path, close enough to matter, and above the
  * watch band. Null when nothing qualifies, and the cascade falls back to the
  * generic wording, which is all it can defend.
+ *
+ * It must also be a name the detector has actually EARNED. YOLO11n calls an
+ * office chair a chair at 0.64-0.80 from across the room and a `suitcase` at
+ * 0.37-0.41 once its back fills the lens; both clear the 0.35 safety gate, which
+ * is the right gate for "something is there" and far too low for "and it is a
+ * suitcase". Tracks carry the best support their name has ever had
+ * ([com.drishti.app.perception.TrackedDetection.labelConfidence]), so a chair
+ * recognised on the approach keeps its name through the close-up.
  */
 private fun blockingLabel(
     centreAssessments: List<RiskAssessment>,
@@ -264,7 +272,8 @@ private fun blockingLabel(
         it.spatial.pathOverlap >= BLOCKING_LABEL_MIN_OVERLAP &&
             it.spatial.proximity.band != ProximityBand.FAR &&
             it.spatial.proximity.band != ProximityBand.UNKNOWN &&
-            it.level != RiskLevel.CLEAR
+            it.level != RiskLevel.CLEAR &&
+            nameSupport(it) >= BLOCKING_LABEL_MIN_CONFIDENCE
     }
     val centre = centreAssessments.filter(implicated).maxByOrNull { it.score }
     val anywhere = assessments.filter(implicated).maxByOrNull { it.score }
@@ -274,11 +283,52 @@ private fun blockingLabel(
 /** Same gate the cascade uses to decide a detection is in the centre path. */
 private const val BLOCKING_LABEL_MIN_OVERLAP = 0.25
 
-private fun clearerSide(corridor: CorridorAnalysis, decisionMargin: Double): CorridorChoice {
+/**
+ * How well supported a name has to be before it is spoken.
+ *
+ * Between the 0.35 safety gate that decides an obstacle exists and the 0.64-0.80
+ * the detector produces when it actually recognises the thing. Below this the
+ * verdict is unnamed, not wrong.
+ */
+private const val BLOCKING_LABEL_MIN_CONFIDENCE = 0.50
+
+/**
+ * Best evidence there has ever been for this track name, falling back to this
+ * frame's confidence for an assessment built without a tracker behind it.
+ */
+private fun nameSupport(assessment: RiskAssessment): Double = max(
+    assessment.spatial.tracked.labelConfidence,
+    assessment.spatial.tracked.detection.confidence,
+)
+
+/**
+ * Which way to step when the path ahead is blocked.
+ *
+ * Cost first, exactly as the Python does, and the golden vectors pin that.
+ * Corridor cost is a noisy-OR over NAMED obstacles, though, and two sides can
+ * easily carry similar cost while one of them is open floor and the other is a
+ * wall — cost says nothing about what is not detected. When cost cannot
+ * separate them the old answer was PAUSE_UNCLEAR: "something is in the way,
+ * work it out yourself", which is the least useful thing to say to a blind
+ * person mid-stride.
+ *
+ * So free depth gets to break the tie. It is a different measurement from a
+ * different model, it is the one that reads the ground rather than the objects,
+ * and it only runs where the previous answer was "no idea". Whichever side it
+ * picks still has to pass the walkable / free-extent / wall-ratio test in the
+ * caller before anyone is steered into it.
+ */
+private fun clearerSide(corridor: CorridorAnalysis, settings: PipelineSettings): CorridorChoice {
     val left = corridor.costs.leftCost
     val right = corridor.costs.rightCost
-    if (left + decisionMargin < right) return CorridorChoice.LEFT
-    if (right + decisionMargin < left) return CorridorChoice.RIGHT
+    if (left + settings.decisionMargin < right) return CorridorChoice.LEFT
+    if (right + settings.decisionMargin < left) return CorridorChoice.RIGHT
+    if (!corridor.hasSurfaces) return CorridorChoice.NONE
+
+    val leftFloor = corridor.floorExtents.leftCost
+    val rightFloor = corridor.floorExtents.rightCost
+    if (leftFloor >= rightFloor + settings.directionFreeExtentMargin) return CorridorChoice.LEFT
+    if (rightFloor >= leftFloor + settings.directionFreeExtentMargin) return CorridorChoice.RIGHT
     return CorridorChoice.NONE
 }
 

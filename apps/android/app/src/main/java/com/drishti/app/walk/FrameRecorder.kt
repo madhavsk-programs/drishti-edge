@@ -60,7 +60,10 @@ class FrameRecorder(context: Context) {
                 stride = if (present && everyFrame?.exists() == true) 1 else EVERY_NTH
                 Log.i(
                     TAG,
-                    if (present) "frame capture ON (every ${stride}th) -> $dir"
+                    if (present) {
+                        val cadence = if (stride == 1) "every frame" else "every ${stride}th frame"
+                        "frame capture ON ($cadence) -> $dir"
+                    }
                     else "frame capture OFF",
                 )
             }

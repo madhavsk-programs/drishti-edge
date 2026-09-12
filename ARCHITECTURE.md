@@ -1170,6 +1170,85 @@ receding to a vanishing point, which is what a wooden floor also is. That case
 needs depth, or a segmentation model that can tell a worktop from a floor at a
 grazing angle. SegFormer-B0 cannot.
 
+### 12.2.6 Free depth is measured across a corridor, not up a sliver of it
+
+Three live screenshots showed one office chair ahead, plainly clear carpet beside
+it, and a full-screen `STOP` reading "blocked on every side". The chair was found
+and measured correctly. What was wrong was the question asked of the floor.
+
+Free depth used to be measured COLUMN-wise: walk up each corridor column until
+the floor stops, take the median over the columns tall enough to be worth
+measuring. A corridor third is a slanted trapezoid, so hardly any of its columns
+run its full depth, and the ones that do all lie against its INNER edge. On the
+shipped geometry over a 128-px map the LEFT third covers columns 24..60 and only
+**45..53** were measured — a nine-pixel strip pressed against the centre. "Is
+there room to my left?" was answered by looking at the strip immediately beside
+whatever was blocking the centre, so one wide object in the middle of the path
+zeroed all three corridors at once. Over ten consecutive captured office frames
+the column measure read 0.000 for at least one side on seven of them, including
+one whose corridor costs were 0.05 / 0.10 / 0.19 — nothing in the way at all.
+
+It is now measured ROW-wise: from the bottom of the frame upward, across the
+region's whole width, the depth carries on while a row is at least
+`ROW_WALKABLE_MIN` = 0.55 floor. A desk filling a corridor still takes a row from
+floor to nothing; an object hugging one edge of a third no longer condemns it.
+Swept at 0.45 / 0.55 / 0.65 over three captured sets: 0.45 and 0.55 give
+identical decisions, and 0.65 starts clipping the centre extent on frames with
+open floor ahead.
+
+`direction_min_free_extent` was re-anchored from 0.35 to 0.30 at the same time,
+because the quantity underneath it changed. It is now one and a half times
+`freespace_blocked_max`, leaving a real band between "not blocked" and "good
+enough to walk into". Across 44 captured frames the move changes one decision.
+
+**And cost is no longer the only thing that can choose a side.** When neither
+side is cheaper than the other by `decision_margin`, the old answer was
+`PAUSE_UNCLEAR` — "something is in the way, work it out yourself", which is the
+least useful thing to say to a blind person mid-stride. Corridor cost is a
+noisy-OR over NAMED obstacles and says nothing about what was never detected, so
+free depth now breaks that tie when it can separate the sides by
+`direction_free_extent_margin` = 0.20. The winner still has to pass the
+walkable / free-extent / wall-ratio test before anyone is steered into it, and
+genuinely equal sides still refuse to invent a direction.
+
+Measured over the three captured sets: no frame changed between CLEAR and
+non-CLEAR — the verdict "is something in the way" is untouched — and of the
+blocked frames that previously carried no direction, nine of eleven now do. The
+desk sequence went from seven `ALL_CORRIDORS_BLOCKED` to none.
+
+### 12.2.7 A name is a guess; the object is what persists
+
+"Chair shows suitcase?" — two live screenshots of the same office chairs. At
+walking distance YOLO11n called them `chair` at 0.64 and 0.80. With a chair back
+filling the lens, a large dark rounded rectangle, it called it `suitcase` at 0.37
+and 0.41. Both clear the 0.35 safety gate, which is the right gate for "something
+is there" and far too low for "and it is a suitcase".
+
+The tracker made this worse rather than absorbing it. Association was gated on
+the NAME (`tracking.json`'s `new_id_when_label_differs`), so the moment the name
+changed, the entire history was discarded and a fresh track began — with the
+wrong name and no way back — at exactly the moment the obstacle mattered most.
+
+Two changes, both divergences from the Python, both parity-gated so the vectors
+still hold:
+
+- **Association is geometric.** A box that overlaps an existing track by
+  `cross_label_iou_threshold` = 0.60 joins it even under a different name.
+  Same-name matches are taken first, so an overlapping person and chair still
+  end up as two tracks; a differently-named box has to be essentially the same
+  box before it is treated as the same thing.
+- **The name is a vote**, summed over the track's life and weighted by
+  confidence. One confident early look does not outrank a dozen consistent later
+  ones, so a genuine misread on the approach is not permanent.
+
+`TrackedDetection.label_confidence` carries the best evidence there has ever been
+for the name being reported, which is a different quantity from the box's
+confidence on this frame: the first decides whether the name is worth SAYING,
+the second is what a corridor cost is built from. `blocking_label` will not speak
+a name supported below 0.50 — between the 0.35 gate that decides an obstacle
+exists and the 0.64-0.80 the detector produces when it actually recognises
+something. Below that the verdict is unnamed, not wrong.
+
 ### 12.3 Why the cascade, and why uncertainty is not danger
 
 Rules 1–3 are *evidence-specific* and bypass ordinary scoring because an

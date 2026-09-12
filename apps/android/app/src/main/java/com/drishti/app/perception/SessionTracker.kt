@@ -23,11 +23,41 @@ data class TrackedDetection(
      * so downstream can tell a measurement from a memory.
      */
     val framesSinceSeen: Int = 0,
+    /**
+     * Best confidence this track has ever had for the name it is reporting.
+     *
+     * [DetectionCandidate.confidence] is how sure the detector is on THIS frame,
+     * which is what a corridor cost should be built from. This is how well the
+     * NAME is supported over the object's whole life, which is what should
+     * decide whether the name is worth saying out loud. They come apart exactly
+     * when it matters: an office chair recognised at 0.80 across the room is
+     * still the same chair when it fills the lens and the detector drops to
+     * 0.41 and calls it a suitcase.
+     *
+     * 0.0 on a value built by hand; readers fall back to the detection's own
+     * confidence, which is what a single unmatched observation is worth.
+     */
+    val labelConfidence: Double = 0.0,
 )
+
+/** Everything one track has been called, and how strongly. */
+private class LabelVotes {
+    private val total = HashMap<String, Double>()
+    private val best = HashMap<String, Double>()
+
+    fun add(label: String, confidence: Double) {
+        total[label] = (total[label] ?: 0.0) + confidence
+        best[label] = maxOf(best[label] ?: 0.0, confidence)
+    }
+
+    /** The name the detector has argued for hardest, summed over every frame. */
+    fun winner(): String = total.maxByOrNull { it.value }!!.key
+
+    fun bestConfidenceFor(label: String): Double = best[label] ?: 0.0
+}
 
 private data class Track(
     val trackId: Int,
-    val label: String,
     var detection: DetectionCandidate,
     val firstSeenMillis: Long,
     var lastSeenMillis: Long,
@@ -35,7 +65,23 @@ private data class Track(
     var lastFrameId: Int,
     /** Last frame the DETECTOR actually produced a box for it. */
     var lastSeenFrameId: Int = lastFrameId,
-)
+) {
+    val votes = LabelVotes()
+    /** The name this track reports: the winner of [votes], not the last guess. */
+    var label: String = detection.label
+        private set
+
+    fun vote(candidate: DetectionCandidate) {
+        votes.add(candidate.label, candidate.confidence)
+        label = votes.winner()
+    }
+
+    fun labelConfidence(): Double = votes.bestConfidenceFor(label)
+
+    /** The candidate as this track will report it: under the voted name. */
+    fun rename(candidate: DetectionCandidate): DetectionCandidate =
+        if (candidate.label == label) candidate else candidate.copy(label = label)
+}
 
 class SessionTracker(
     private val iouThreshold: Double,
@@ -62,6 +108,29 @@ class SessionTracker(
      * confidence directly decays the corridor cost it contributes.
      */
     private val coastFrames: Int = 0,
+    /**
+     * How much a box must overlap an existing track before it is allowed to
+     * join it under a DIFFERENT name. `null` disables cross-name association
+     * and is the Python behaviour the `tracking.json` vectors pin, including
+     * `new_id_when_label_differs`.
+     *
+     * That behaviour is the mechanism behind "the chair shows as a suitcase".
+     * YOLO11n recognises an office chair perfectly well at walking distance —
+     * 0.64 and 0.80 on two chairs in one captured frame — and as the user closes
+     * in and the chair back fills the lens, a large dark rounded rectangle, it
+     * drops to `suitcase` at 0.37-0.41. With names gating association, that is
+     * not the same object changing its mind: it is a brand new track with no
+     * history, so every frame of careful recognition is thrown away at exactly
+     * the moment the obstacle matters most.
+     *
+     * A name is a guess about an object; the object is the thing that persists.
+     * So association is geometric, and the name is a VOTE over the track life
+     * (see [LabelVotes]). The gate is deliberately much stricter than the
+     * same-name one: a differently-named box has to be essentially the same box
+     * before it is treated as the same thing, and same-name matches are taken
+     * first, so an overlapping person and chair still end up as two tracks.
+     */
+    private val crossLabelIouThreshold: Double? = 0.60,
 ) {
     private val tracks = LinkedHashMap<Int, Track>()
     private var nextTrackId = 1
@@ -77,18 +146,35 @@ class SessionTracker(
         val available = LinkedHashSet(tracks.keys)
         val output = ArrayList<TrackedDetection>(detections.size)
 
-        for (detection in detections) {
-            val track = bestMatch(detection, available)
+        // Same name first, greedily and in detection order, so a box that has a
+        // track of its own name can never be stolen by the looser pass below.
+        val matched = arrayOfNulls<Track>(detections.size)
+        for ((index, detection) in detections.withIndex()) {
+            val track = bestMatch(detection, available) ?: continue
+            matched[index] = track
+            available.remove(track.trackId)
+        }
+        crossLabelIouThreshold?.let { threshold ->
+            for ((index, detection) in detections.withIndex()) {
+                if (matched[index] != null) continue
+                val track = bestOverlap(detection, available, threshold) ?: continue
+                matched[index] = track
+                available.remove(track.trackId)
+            }
+        }
+
+        for ((index, detection) in detections.withIndex()) {
+            val track = matched[index]
             if (track == null) {
                 val created = Track(
                     trackId = nextTrackId,
-                    label = detection.label,
                     detection = detection,
                     firstSeenMillis = capturedAtMillis,
                     lastSeenMillis = capturedAtMillis,
                     lastFrameId = frameId,
                     lastSeenFrameId = frameId,
                 )
+                created.vote(detection)
                 nextTrackId += 1
                 tracks[created.trackId] = created
                 output.add(
@@ -99,29 +185,32 @@ class SessionTracker(
                         areaChange = null,
                         motionDx = null,
                         motionDy = null,
+                        labelConfidence = created.labelConfidence(),
                     )
                 )
                 continue
             }
 
-            available.remove(track.trackId)
             val previous = track.detection
             val previousArea = area(previous)
             val currentArea = area(detection)
             val areaChange = (currentArea - previousArea) / max(previousArea, 1e-6)
             val previousCentre = centre(previous)
             val currentCentre = centre(detection)
+            track.vote(detection)
+            val reported = track.rename(detection)
             output.add(
                 TrackedDetection(
-                    detection = detection,
+                    detection = reported,
                     trackId = track.trackId,
                     approachRate = min(1.0, max(0.0, areaChange)),
                     areaChange = areaChange,
                     motionDx = currentCentre.first - previousCentre.first,
                     motionDy = currentCentre.second - previousCentre.second,
+                    labelConfidence = track.labelConfidence(),
                 )
             )
-            track.detection = detection
+            track.detection = reported
             track.lastSeenMillis = capturedAtMillis
             track.lastFrameId = frameId
             track.lastSeenFrameId = frameId
@@ -146,6 +235,7 @@ class SessionTracker(
                     motionDx = null,
                     motionDy = null,
                     framesSinceSeen = age,
+                    labelConfidence = track.labelConfidence(),
                 )
             )
             track.lastFrameId = frameId
@@ -168,6 +258,25 @@ class SessionTracker(
             val score = overlap + max(0.0, 1.0 - distance / centreDistanceThreshold) * 0.1
             if (best == null || score > bestScore) {
                 bestScore = score
+                best = track
+            }
+        }
+        return best
+    }
+
+    /** Pure geometry: the available track this box most nearly IS. */
+    private fun bestOverlap(
+        detection: DetectionCandidate,
+        availableTrackIds: Set<Int>,
+        threshold: Double,
+    ): Track? {
+        var bestOverlap = threshold
+        var best: Track? = null
+        for (trackId in availableTrackIds) {
+            val track = tracks[trackId] ?: continue
+            val overlap = iou(track.detection, detection)
+            if (overlap >= bestOverlap) {
+                bestOverlap = overlap
                 best = track
             }
         }

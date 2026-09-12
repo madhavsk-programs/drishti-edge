@@ -31,14 +31,17 @@ class BlockingLabelTest {
         proximity: Double,
         direction: Direction,
         pathOverlap: Double,
+        confidence: Double = 0.8,
+        labelConfidence: Double = 0.0,
     ) = SpatialTrack(
         tracked = TrackedDetection(
-            detection = DetectionCandidate(label, 0.8, 0.4, 0.4, 0.6, 0.9),
+            detection = DetectionCandidate(label, confidence, 0.4, 0.4, 0.6, 0.9),
             trackId = 1,
             approachRate = null,
             areaChange = null,
             motionDx = null,
             motionDy = null,
+            labelConfidence = labelConfidence,
         ),
         proximity = RelativeProximity(proximity, band),
         direction = direction,
@@ -90,6 +93,32 @@ class BlockingLabelTest {
     fun aDistantPersonNeverOutranksANearObstacle() {
         // Order reversed: selection must not depend on list position.
         assertEquals("desk", decide(listOf(deskUnderfoot, distantPerson)).blockingLabel)
+    }
+
+    @Test
+    fun aNameTheDetectorIsNotSureOfIsNotSpoken() {
+        // As captured: an office chair at arm's length, called `suitcase` at
+        // 0.41. Over the 0.35 gate that decides something is THERE, nowhere near
+        // enough to tell a blind person what it is.
+        val guess = track(
+            "suitcase", ProximityBand.IMMEDIATE, 1.0, Direction.CENTRE,
+            pathOverlap = 0.99, confidence = 0.41,
+        )
+        assertNull(
+            "an unnamed stop beats a wrongly named one",
+            decide(listOf(guess)).blockingLabel,
+        )
+    }
+
+    @Test
+    fun aNameEarnedEarlierInTheTrackIsStillSpokenUpClose() {
+        // The same object, but the tracker remembers recognising it as a chair
+        // at 0.80 further back. The box confidence is still this frame's.
+        val remembered = track(
+            "chair", ProximityBand.IMMEDIATE, 1.0, Direction.CENTRE,
+            pathOverlap = 0.99, confidence = 0.41, labelConfidence = 0.80,
+        )
+        assertEquals("chair", decide(listOf(remembered)).blockingLabel)
     }
 
     @Test

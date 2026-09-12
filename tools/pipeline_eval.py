@@ -56,7 +56,7 @@ class Settings:
     freespace_dead_end_max: float = 0.12
     freespace_blocked_max: float = 0.20
     freespace_side_open_min: float = 0.30
-    direction_min_free_extent: float = 0.35
+    direction_min_free_extent: float = 0.30
     stairs_centre_ratio_threshold: float = 0.08
 
     risk_watch_enter: float = 0.25
@@ -72,6 +72,7 @@ class Settings:
     risk_centre_block_threshold: float = 0.40
     risk_side_block_threshold: float = 0.55
     decision_margin: float = 0.15
+    direction_free_extent_margin: float = 0.20
 
 
 MIN_WALKABLE_RATIO = 0.25
@@ -481,6 +482,25 @@ def floor_extent(mask: np.ndarray, kind: np.ndarray, min_span_ratio: float) -> f
     return (extents[m - 1] + extents[m]) / 2 if len(extents) % 2 == 0 else extents[m]
 
 
+def floor_extent_rows(mask: np.ndarray, kind: np.ndarray, row_floor_min: float) -> float:
+    """Row-wise free depth: how deep the corridor stays mostly-floor, from the
+    bottom of the frame upward, across the region's WHOLE width."""
+    rows = np.nonzero(mask.any(axis=1))[0]
+    if rows.size == 0:
+        return 0.0
+    depth = rows[-1] - rows[0] + 1
+    free = 0
+    for y in range(rows[-1], rows[0] - 1, -1):
+        total = int(mask[y].sum())
+        if total == 0:
+            break
+        walk = int((mask[y] & (kind[y] == WALKABLE)).sum())
+        if walk / total < row_floor_min:
+            break
+        free += 1
+    return free / depth
+
+
 SURFACE_WITNESS_LABELS = {"laptop", "keyboard", "microwave", "oven", "toaster"}
 SURFACE_WITNESS_MIN_CONFIDENCE = 0.50
 
@@ -505,7 +525,7 @@ def occlusion_mask(occluders, kind, lb: Letterbox, sx, sy, s: Settings):
 
 
 def surface_evidence(kind, hazard, wall, lb: Letterbox, s: Settings, min_span_ratio: float,
-                     occluders=None):
+                     occluders=None, extent_mode: str = "row", row_floor_min: float = 0.55):
     h, w = kind.shape
     sx, sy = w / lb.tw, h / lb.th
     occluded = occlusion_mask(occluders or [], kind, lb, sx, sy, s)
@@ -522,7 +542,9 @@ def surface_evidence(kind, hazard, wall, lb: Letterbox, s: Settings, min_span_ra
         ev["unknown"][choice] = float((mask & (kind == UNKNOWN)).sum()) / total
         ev["wall"][choice] = float((mask & wall).sum()) / total
         ev["stairs"][choice] = float((mask & hazard).sum()) / total
-        ev["floor_extent"][choice] = floor_extent(mask, kind, min_span_ratio)
+        ev["floor_extent"][choice] = (
+            floor_extent_rows(mask, kind, row_floor_min) if extent_mode == "row"
+            else floor_extent(mask, kind, min_span_ratio))
     return ev
 
 
@@ -643,6 +665,10 @@ def select_action(analysis: Analysis, s: Settings):
         left, right = a.costs[LEFT], a.costs[RIGHT]
         preferred = (LEFT if left + s.decision_margin < right else
                      RIGHT if right + s.decision_margin < left else None)
+        if preferred is None and a.has_surfaces:
+            lf, rf = a.floor_extents[LEFT], a.floor_extents[RIGHT]
+            preferred = (LEFT if lf >= rf + s.direction_free_extent_margin else
+                         RIGHT if rf >= lf + s.direction_free_extent_margin else None)
         if (preferred and preferred in a.walkable and preferred not in a.uncertain
                 and a.floor_extents[preferred] >= s.direction_min_free_extent
                 and a.wall_ratios[preferred] < s.wall_side_ratio_threshold):
@@ -663,11 +689,13 @@ def select_action(analysis: Analysis, s: Settings):
 
 
 class Tracker:
-    def __init__(self, iou_threshold=0.20, centre_distance=0.12, max_age=3, coast_frames=3):
+    def __init__(self, iou_threshold=0.20, centre_distance=0.12, max_age=3, coast_frames=0,
+                 cross_label_iou=0.60):
         self.iou_threshold = iou_threshold
         self.centre_distance = centre_distance
         self.max_age = max_age
         self.coast_frames = coast_frames
+        self.cross_label_iou = cross_label_iou
         self.tracks: dict[int, dict] = {}
         self.next_id = 1
 
@@ -693,8 +721,11 @@ class Tracker:
             del self.tracks[tid]
 
         available = set(self.tracks)
-        out: list[tuple[Detection, int, int]] = []
-        for det in detections:
+        matched: list[int | None] = [None] * len(detections)
+
+        # Same name first, so a box with a track of its own name is never
+        # stolen by the looser geometric pass below (SessionTracker.update).
+        for index, det in enumerate(detections):
             best, best_score = None, -1.0
             for tid in available:
                 tr = self.tracks[tid]
@@ -707,15 +738,37 @@ class Tracker:
                 score = overlap + max(0.0, 1 - distance / self.centre_distance) * 0.1
                 if score > best_score:
                     best, best_score = tid, score
-            if best is None:
+            if best is not None:
+                matched[index] = best
+                available.discard(best)
+        if self.cross_label_iou is not None:
+            for index, det in enumerate(detections):
+                if matched[index] is not None:
+                    continue
+                best, best_overlap = None, self.cross_label_iou
+                for tid in available:
+                    overlap = self._iou(self.tracks[tid]["det"], det)
+                    if overlap >= best_overlap:
+                        best, best_overlap = tid, overlap
+                if best is not None:
+                    matched[index] = best
+                    available.discard(best)
+
+        out: list[tuple[Detection, int, int]] = []
+        for index, det in enumerate(detections):
+            tid = matched[index]
+            if tid is None:
                 tid = self.next_id
                 self.next_id += 1
-                self.tracks[tid] = {"label": det.label, "det": det, "last_seen": frame_id}
+                self.tracks[tid] = {"label": det.label, "det": det, "last_seen": frame_id,
+                                    "votes": {det.label: det.confidence}}
             else:
-                available.discard(best)
-                tid = best
-                self.tracks[tid]["det"] = det
-                self.tracks[tid]["last_seen"] = frame_id
+                tr = self.tracks[tid]
+                tr["votes"][det.label] = tr["votes"].get(det.label, 0.0) + det.confidence
+                tr["label"] = max(tr["votes"].items(), key=lambda kv: kv[1])[0]
+                det = Detection(tr["label"], det.confidence, det.x1, det.y1, det.x2, det.y2)
+                tr["det"] = det
+                tr["last_seen"] = frame_id
             out.append((det, tid, 0))
 
         for tid in available:
@@ -793,17 +846,18 @@ def centre_crop(rgb: np.ndarray, aspect: float | None) -> np.ndarray:
 
 def evaluate(path: Path, detector: Detector, segmenter: Segmenter, labels, s: Settings,
              min_span_ratio: float = MIN_COLUMN_SPAN_RATIO, crop_aspect: float | None = None,
-             fuse: bool = True, tracker=None, frame_id: int = 1):
+             fuse: bool = True, tracker=None, frame_id: int = 1,
+             extent_mode: str = "row", row_floor_min: float = 0.55):
     rgb = np.asarray(Image.open(path).convert("RGB"), dtype=np.uint8)
     rgb = centre_crop(rgb, crop_aspect)
     risk_view, everything = detector.detect(rgb)
     if tracker is not None:
-        tracked = tracker.update(risk_view, frame_id)
-        risk_view = [d for d, _tid, _age in tracked]
+        risk_view = [d for d, _tid, _age in tracker.update(risk_view, frame_id)]
     class_id, kind, hazard, wall = segmenter.segment(rgb)
     lb = Letterbox(rgb.shape[1], rgb.shape[0], segmenter.w, segmenter.h)
     ev = surface_evidence(kind, hazard, wall, lb, s, min_span_ratio,
-                          occluders=risk_view if fuse else [])
+                          occluders=risk_view if fuse else [],
+                          extent_mode=extent_mode, row_floor_min=row_floor_min)
     analysis = analyze(risk_view, s, ev)
     score_tracks(analysis, s)
     decision = select_action(analysis, s)
@@ -826,6 +880,10 @@ def main() -> int:
                     help="disable the detection-vetoes-floor fusion")
     ap.add_argument("--sequence", action="store_true",
                     help="treat the inputs as consecutive frames and run a tracker over them")
+    ap.add_argument("--extent-mode", choices=("column", "row"), default="row",
+                    help="how free depth is measured: per-row (shipped) or the old per-column median")
+    ap.add_argument("--row-floor-min", type=float, default=0.55,
+                    help="row mode: share of a row that must be floor for the depth to continue")
     ap.add_argument("--coast-frames", type=int, default=0,
                     help="sequence mode: frames an unmatched track keeps reporting (0 = Python)")
     args = ap.parse_args()
@@ -851,7 +909,8 @@ def main() -> int:
         rgb, class_id, kind, everything, analysis, decision, ev = evaluate(
             path, detector, segmenter, labels, s,
             crop_aspect=args.crop_aspect, fuse=not args.no_fuse, tracker=tracker,
-            frame_id=index + 1)
+            frame_id=index + 1, extent_mode=args.extent_mode,
+            row_floor_min=args.row_floor_min)
         print("=" * 78)
         print(path.name, f"{rgb.shape[1]}x{rgb.shape[0]}")
         print(f"  DECISION   {decision[0]} / {decision[1]} / {decision[2]}")

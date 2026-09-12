@@ -94,22 +94,32 @@ object SurfaceEvidenceBuilder {
     }
 
     /**
-     * Median contiguous visible-floor run measured UPWARD from each corridor
-     * column's base, normalised by that column's height.
+     * How deep this corridor stays walkable, measured from the bottom of the
+     * frame upward, as a fraction of the corridor's depth.
      *
-     * Measuring from the base is the point: a floor that is visible near the
-     * user's feet but interrupted further out is a short extent, and that is
-     * exactly the "wall or dead end ahead" evidence the cascade needs.
+     * ROW-wise, across the region's whole width. The obvious implementation is
+     * column-wise — walk up each column until the floor stops, take the median
+     * — and that is what this was. It is wrong for the SIDE corridors, and
+     * measurably so.
      *
-     * Only columns that span at least [MIN_COLUMN_SPAN_RATIO] of the corridor's
-     * tallest column are counted. A corridor is a perspective TRAPEZOID: its
-     * outer columns are clipped to a sliver near the bottom of the frame, where
-     * the ground at the user's feet is almost always floor, so each of them
-     * reports an extent near 1.0. Those slivers outnumber the full-height
-     * columns roughly five to one at the corridor's proportions, so an unfiltered
-     * median read ~1.0 — "clear all the way ahead" — with a chair pressed
-     * against the lens. A column has to run most of the corridor's depth before
-     * it can say anything about how far ahead the floor continues.
+     * A corridor third is a slanted trapezoid, so its columns are clipped: only
+     * a handful run the region's full depth, and they all sit against the
+     * region's INNER edge. Measured on the shipped geometry over a 128-px map,
+     * the LEFT third covers map columns 24..60, and the columns tall enough to
+     * be measured were 45..53 — a nine-pixel strip pressed against the centre.
+     * So "is there room to my left?" was answered by looking at the strip right
+     * beside whatever was blocking the centre. A chair in the middle of the path
+     * covers that strip with its bounding box, both sides read extent 0.000,
+     * every corridor counts as blocked and the user is told to stop — with open
+     * floor either side of them. Over ten consecutive office frames the
+     * column measure reported 0.000 for at least one side on seven of them,
+     * including one whose corridor costs were 0.05 / 0.10 / 0.19.
+     *
+     * A row is the honest unit for "how far ahead": every row of the region is
+     * sampled across its full width, and the depth stops at the first row that
+     * is no longer mostly floor. Wide obstacles still truncate it — a desk
+     * filling the corridor takes a row from floor to nothing — but an object
+     * hugging one edge no longer condemns the whole third.
      */
     private fun floorExtent(
         mask: BooleanArray,
@@ -118,56 +128,54 @@ object SurfaceEvidenceBuilder {
     ): Double {
         val width = segmentation.width
         val height = segmentation.height
-        val spans = IntArray(width)
-        val bottoms = IntArray(width) { -1 }
-        val tops = IntArray(width) { -1 }
-        for (x in 0 until width) {
-            var top = -1
-            var bottom = -1
-            for (y in 0 until height) {
-                if (mask[y * width + x]) {
-                    if (top < 0) top = y
-                    bottom = y
-                }
+        var top = -1
+        var bottom = -1
+        for (y in 0 until height) {
+            val row = y * width
+            var any = false
+            for (x in 0 until width) {
+                if (mask[row + x]) { any = true; break }
             }
-            if (top < 0) continue
-            tops[x] = top
-            bottoms[x] = bottom
-            spans[x] = bottom - top + 1
+            if (any) {
+                if (top < 0) top = y
+                bottom = y
+            }
         }
-        val tallest = spans.maxOrNull() ?: 0
-        if (tallest <= 0) return 0.0
-        val minimumSpan = (tallest * MIN_COLUMN_SPAN_RATIO).toInt().coerceAtLeast(1)
+        if (top < 0) return 0.0
+        val depth = bottom - top + 1
 
-        val extents = ArrayList<Double>(width)
-        for (x in 0 until width) {
-            if (spans[x] < minimumSpan) continue
-            val bottom = bottoms[x]
-            val top = tops[x]
-            var run = 0
-            for (y in bottom downTo top) {
-                val index = y * width + x
-                if (!mask[index] ||
-                    kindAt(segmentation, occluded, index) != SurfaceKind.WALKABLE.ordinal
-                ) {
-                    break
+        var free = 0
+        for (y in bottom downTo top) {
+            val row = y * width
+            var total = 0
+            var walkable = 0
+            for (x in 0 until width) {
+                val index = row + x
+                if (!mask[index]) continue
+                total++
+                if (kindAt(segmentation, occluded, index) == SurfaceKind.WALKABLE.ordinal) {
+                    walkable++
                 }
-                run++
             }
-            extents.add(run.toDouble() / spans[x])
+            if (total == 0) break
+            if (walkable.toDouble() / total < ROW_WALKABLE_MIN) break
+            free++
         }
-        if (extents.isEmpty()) return 0.0
-        extents.sort()
-        val middle = extents.size / 2
-        return if (extents.size % 2 == 0) {
-            (extents[middle - 1] + extents[middle]) / 2.0
-        } else {
-            extents[middle]
-        }
+        return free.toDouble() / depth
     }
 
-    /** Share of the corridor's depth a column must span to be measured. */
-    internal const val MIN_COLUMN_SPAN_RATIO = 0.80
+    /**
+     * Share of a corridor row that must be walkable for the free depth to carry
+     * on past it.
+     *
+     * Above half, so a row the user cannot get across in a straight line stops
+     * the measurement, and low enough that an obstacle against one edge of a
+     * third does not. Swept at 0.45 / 0.55 / 0.65 over three captured Walk Mode
+     * sets; the decisions were identical at 0.45 and 0.55, and 0.65 began
+     * clipping the centre extent on frames with open floor.
+     */
+    internal const val ROW_WALKABLE_MIN = 0.55
+
 
     /**
      * A detection whose BASE proves the plane under it is not a floor.
