@@ -318,7 +318,8 @@ dashboard, and P0.4 is the first thing cut if anything overruns.
 | E6 | Segmentation (R5) — wire in the model P0.8.4 already proved | 1.0 | Soft | Omit, announce degradation |
 | — | **Sleep** | **5.0** | — | — |
 | E7 | Ask → Lock → Guide (R6) | 2.5 | Soft | Cut Find |
-| E8 | Coordinator and dashboard (R7) | 1.5 | Soft | Cut dashboard |
+| E8 | Coordinator and dashboard (R7) | 1.5 | Soft | Cut dashboard. **Answered differently** — see E8′ |
+| E8′ | DRISHTI Monitor, the NGO Android app | 2.0 | Soft | **Built**, on sample data, no backend |
 | E9 | Soak and the §23.2 functional checks | 2.0 | **HARD** | Never cut |
 | E10 | VLM stretch (R8) — **16 GB only** | 2.0 | ~~Optional~~ **DONE** | Shipped: LFM2.5-VL-450M, ungated |
 | E11 | Freeze, rehearse, evidence pack | 3.0 | **HARD** | Never cut |
@@ -343,11 +344,21 @@ dashboard, and P0.4 is the first thing cut if anything overruns.
 **E4 is the line that matters.** Everything after it is width, not existence.
 
 > **Where the build actually stands:** everything through E10 is built. E7
-> (Find), E10 (Scene VLM) and the A7 diagnostics panel all landed; the
-> coordinator and dashboard (E8) did not, and by §6.2's own cut order they are
-> the right thing to be missing — the demo's strongest beat is turning the
-> laptop off. What remains is E9 (soak and the §23.2 checks) and E11 (freeze,
-> rehearsal, evidence pack), neither of which may be cut.
+> (Find), E10 (Scene VLM) and the A7 diagnostics panel all landed. The
+> coordinator half of E8 did not, and by §6.2's own cut order it is the right
+> thing to be missing — the demo's strongest beat is turning the laptop off.
+>
+> The *monitoring* half was answered another way. `apps/dashboard-android/` is
+> a second Android app for the NGO desk — live status, help requests with a
+> dialler, per-person safety events, corroborated street hazards — running on
+> an in-memory sample programme with no backend and no connection to the
+> walking app, which its masthead states on every screen. It retires the React
+> dashboard, whose dependency on a laptop plus FastAPI plus a shared network
+> made it unavailable in exactly the situation it existed for (ARCHITECTURE.md
+> §19.5). 28 unit tests; three screens verified on device.
+>
+> What remains is E9 (soak and the §23.2 checks) and E11 (freeze, rehearsal,
+> evidence pack), neither of which may be cut.
 
 ---
 

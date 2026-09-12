@@ -99,7 +99,7 @@ These predate the migration and are consumed by it, not rewritten by it.
 
 | Component | Path | Why it carries over |
 |---|---|---|
-| Coordinator dashboard | `apps/dashboard/` | Mature React client. Runs on the laptop. Never in the walking path. |
+| Coordinator dashboard | `apps/dashboard/` | Mature React client. Runs on the laptop. Never in the walking path. **Being retired** — see §19.5. |
 | Typed contracts | `packages/contracts/` | The data shapes the pipeline must produce. Frozen except by the Appendix A proposals. |
 | Android UI shell | `apps/android/.../ui/` | Compose screens, overlay canvas, gesture handling. |
 | Output engines | `apps/android/.../feedback/` | Speech, spatial audio, sonar mapping, audio focus, gyro steering. |
@@ -1399,6 +1399,49 @@ starting with it, and this property is the demo's whole argument.
 - The dashboard's health and model panels distinguish phone NPU execution from
   laptop CUDA execution (Appendix A), so a phone inference is never displayed as
   consuming laptop VRAM.
+
+### 19.5 The monitor moves to a phone
+
+The React dashboard in `apps/dashboard/` is being retired. Its replacement is a
+second Android app, `apps/dashboard-android/` — *DRISHTI Monitor* — built for
+the same reader and the same four questions, on the device that reader actually
+carries.
+
+The reason is not taste. The web dashboard is an HTTP client: it cannot be
+opened without the FastAPI service, a laptop to run it on, and a network both
+ends share. That is an acceptable dependency for an engineer at a bench and an
+unacceptable one for a coordinator in a field tent, who is the person the
+screen was written for. A monitoring tool that is unavailable exactly when the
+programme is out walking is not a monitoring tool.
+
+What carries over is the reading order — who is out and are they alright, who
+needs me now, what is broken in the street — and the discipline behind it.
+Three things are stated more strictly than the web version stated them:
+
+- **Status is derived, never stored.** Four states (`Help required`,
+  `Needs attention`, `No signal`, `Safe`) are computed from reported facts and
+  the current time. Silence is never read as safety: ninety seconds without a
+  frame is `No signal` whatever the last frame said, and it outranks a cheerful
+  last reading.
+- **Acknowledging is not resolving.** Taking a help request marks that somebody
+  is on it so a second operator does not ring the same person. Only marking
+  safe ends it. Those two being one control is how a desk loses somebody.
+- **A hazard is counted once per person.** Corroboration means a second
+  *person* independently walked into the same thing, not a second report; one
+  person passing twice a day does not make a pothole more real. Confirmed and
+  unconfirmed are kept visually distinct, because a works list that blurs them
+  is a works list that gets discounted whole.
+
+The app has **no backend today**, by intent: it ships against an in-memory
+sample programme behind a single `MonitorRepository` interface, and its
+masthead says *Sample data* on every screen until a `DeskSnapshot` says
+otherwise. Nothing in this section changes §19.2 — the walking loop still does
+not know the monitor exists, and the walking app currently sends it nothing,
+having had its network DTOs deleted.
+
+The web dashboard and the FastAPI service stay in the tree until the Android
+one has a feed behind it. Deleting a working monitor before its replacement can
+receive data would leave the programme with neither.
 
 ---
 

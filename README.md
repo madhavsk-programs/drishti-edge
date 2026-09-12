@@ -17,7 +17,8 @@ else.
 | Path | What |
 |---|---|
 | `apps/android/` | Kotlin + Jetpack Compose client |
-| `apps/dashboard/` | React + Vite coordinator dashboard |
+| [`apps/dashboard-android/`](apps/dashboard-android/README.md) | DRISHTI Monitor — the Android app an NGO desk watches the programme from |
+| `apps/dashboard/` | React + Vite coordinator dashboard. Being retired in favour of the Android one. |
 | `packages/contracts/` | TypeScript API contracts |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Perception and guidance pipeline specification |
 | [`BUILD_PLAN.md`](BUILD_PLAN.md) | Execution plan — laptop preparation, agent task cards, device bring-up, demo runbook |
@@ -52,6 +53,13 @@ is spoken.
 **Diagnostics** — a two-finger swipe down shows which accelerator actually ran
 the last frame, its millisecond cost, rolling FPS, thermal status and free RAM,
 and can run the same detector on the CPU for comparison.
+
+**Monitor** — a second Android app, [`apps/dashboard-android/`](apps/dashboard-android/README.md),
+for the NGO desk rather than the walker: who is out and how they are, who has
+asked for help and how to reach them, each person's safety events, and the
+street hazards that more than one person has walked into. It runs on sample
+data today — there is no feed from the walking app yet — and says so in its own
+masthead on every screen.
 
 ---
 
@@ -161,7 +169,22 @@ Full contract: [`docs/SAFETY_RULES.md`](docs/SAFETY_RULES.md).
 
 ## Build
 
-### Dashboard
+### Monitor (Android)
+
+```bash
+cd apps/dashboard-android && ./gradlew :app:assembleDebug
+```
+
+```bash
+./gradlew :app:testDebugUnitTest    # 28 tests
+adb install -r -t app/build/outputs/apk/debug/app-debug.apk
+```
+
+A separate Gradle build from `apps/android`, so a coordinator's laptop never
+needs the NDK or the llama.cpp tree to build the thing they actually use.
+Details in [`apps/dashboard-android/README.md`](apps/dashboard-android/README.md).
+
+### Dashboard (web, being retired)
 
 ```bash
 npm install

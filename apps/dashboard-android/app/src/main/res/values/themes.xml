@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      A light theme, unconditionally. The walking app is dark because its user
+      never looks at the screen; this one is read at arm's length in an office
+      or a field tent, often on a phone held next to paper. It does not follow
+      the system dark setting, and that is deliberate - see ui/theme/Theme.kt.
+    -->
+    <style name="Theme.DrishtiDashboard" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">@color/canvas</item>
+    </style>
+</resources>
