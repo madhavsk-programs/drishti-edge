@@ -732,6 +732,33 @@ The app loads both resident models on guarded NPU sessions; a warmed live frame
 measured **57.96 ms total**, including 6.21 ms detection and 14.96 ms
 segmentation. This is integration evidence, not mAP or field-safety validation.
 
+#### Reproduced independently on the 16 GB loaner, second toolchain
+
+Both models were regenerated from scratch on the second PC and re-probed on the
+16 GB I2501 (`10BFAU133N000XR`, also SM8850). Both guarded rungs created and
+both verdicts read `NPU CONFIRMED`:
+
+| Model | Guarded HTP | CPU | First phone |
+|---|---|---|---|
+| `yolo11n_qdq.onnx` | **3.40 ms** | 34.36 ms | 3.30 / 27.35 |
+| `segformer_float.onnx` | **11.69 ms** | 146.45 ms | 11.33 / 150.25 |
+
+Two provenance notes, because the artifacts are **not** byte-identical across
+machines and that difference must not be mistaken for drift later:
+
+- `segformer_float.onnx` **is** reproducible. The rewrite is deterministic and
+  came back as `6c31edf4…`, the same SHA-256 recorded above, from the same
+  `segformer_base-onnx-w8a16` input.
+- `yolo11n_qdq.onnx` is **not** bit-reproducible across ONNX Runtime versions.
+  The second export ran on **ORT 1.30.0** and produced `a6ae5cf6…` rather than
+  `ec71f1a4…`, from a byte-identical `yolo11n_fp32_nchw.onnx` (`190371f3…`) and
+  the same 128 COCO128 images. Calibration is version-sensitive; the artifact
+  hash is therefore evidence of *which build made it*, not of correctness. The
+  guarded-rung result and the latency above are what establish equivalence.
+  `tools/export_yolo_qdq.py` writes `yolo11n_qdq.json` next to the model
+  recording the ORT version and every calibration image hash — read that before
+  comparing two exports.
+
 #### Correction: the AAR does bring backend libraries, transitively
 
 `onnxruntime-android-qnn:1.29.0` pulls **`qnn-runtime:2.42.0`** as a transitive
@@ -767,6 +794,37 @@ one unknown away.** The DSP was reachable, the skel loaded, and a process
 domain was created. The EPContext binary alone failed because it was compiled
 for **2.50.40** and loaded into a **2.42.0** runtime. The portable QDQ result
 above subsequently removed that mismatch.
+
+#### Therefore: stage no QAIRT by hand. Delete any `jniLibs` you already made.
+
+This is now the single most expensive trap in the build, because it fails
+*quietly and plausibly*. A leftover `src/main/jniLibs/arm64-v8a/` shadows the
+AAR's working 2.42.0, and the symptom is not a link error — it is a session
+that still creates on the unguarded rung and still returns correct numbers,
+only slower than the CPU. On 12 September 2026 the 16 GB loaner reproduced it
+exactly: guarded rung refused with `ORT_FAIL … fallback to CPU EP has been
+explicitly disabled`, unguarded rung ran YOLO at **53.68 ms against 33.25 ms
+on plain CPU**, and SegFormer at **140.41 ms against 144.27 ms**. QNN had
+accepted zero nodes. The proof is one line down in logcat:
+
+```
+remote_handle_open_domain: dynamic loading failed for
+  file:///libQnnHtpV81Skel.so?qnn_2_50_0_skel_handle_invoke ... on domain 3
+[E:onnxruntime:, qnn_execution_provider.cc:1046 GetCapability]
+  QNN SetupBackend failed Failed to create device.
+  Error: QNN_DEVICE_ERROR_INVALID_CONFIG
+```
+
+`qnn_2_50_0_` in the skel URI names the guilty runtime. Removing the five
+hand-staged libraries and reinstalling was the entire fix; nothing else
+changed. **Grep for it before diagnosing anything else:**
+
+```bash
+find apps/android -type d -name jniLibs
+```
+
+Both modules must come back empty. `:probe` matters as much as `:app` — it is
+the instrument you would otherwise trust to tell you the NPU is broken.
 
 #### The route taken, and remaining historical alternatives
 
