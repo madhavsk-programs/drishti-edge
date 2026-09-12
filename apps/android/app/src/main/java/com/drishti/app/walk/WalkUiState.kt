@@ -9,6 +9,9 @@ import com.drishti.app.net.TargetTrackingTelemetry
 
 enum class WalkMode { STARTING, WALKING, PAUSED, READING, DESCRIBING, SOS, STOPPED, ERROR }
 
+internal fun WalkMode.keepsWalkInferenceActive(): Boolean =
+    this == WalkMode.WALKING || this == WalkMode.READING
+
 /** Last on-demand OCR read, surfaced on screen (not only spoken). */
 data class ExploreCard(
     val text: String,

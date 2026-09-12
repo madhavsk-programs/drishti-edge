@@ -137,7 +137,7 @@ phone. **This is the event-window work.**
 | Guidance state machine | Python | Kotlin |
 | Target guidance | Python `target_guidance.py` | Kotlin |
 | Landmark memory | Python, TTL-bounded | Kotlin, TTL-bounded |
-| OCR | Tesseract 5, laptop CPU | On-device OCR (§6.3) |
+| OCR | Tesseract 5, laptop CPU | **Bundled ML Kit OCR, phone CPU** (§6.3) |
 | Walking-frame transport | HTTP multipart over LAN | **Deleted. No transport in the walking loop.** |
 
 **MUST:** every ported stage is validated against golden JSON vectors exported
@@ -495,13 +495,18 @@ semantics the deployed model cannot produce.
 |---|---|---|
 | 1 | **PaddleOCR** via NexaSDK | Depends on gate 4.2.1. |
 | 2 | AI Hub OCR / text-detection model | Fallback if Nexa is unavailable. |
-| 3 | **ML Kit text recognition** (on-device, Google) | Boring, reliable, genuinely on-device, no NPU claim. |
+| **3 — selected** | **ML Kit text recognition** (bundled, on-device, Google) | Boring, reliable, genuinely on-device, no NPU claim. |
 | 4 | Cut Explore Mode | It is a Should, not a Must. |
 
 > Rung 3 is worth naming clearly: ML Kit runs on-device and will work. It does
 > not run on the NPU, so it does not strengthen the on-device-AI story, but it
 > keeps the feature alive. Use it rather than losing Explore Mode entirely, and
 > be honest about what it is if a judge asks.
+
+This selected rung now ships. The Latin recognizer is bundled in the APK, is
+created for one explicit still and closed before returning, and never sends the
+JPEG or result to a service. The 12 GB iQOO device test recognizes `BUS 42A` and
+extracts `42A` using the production reader.
 
 ### 6.4 The locator and Scene VLM — optional proof, never a prerequisite
 
@@ -1279,6 +1284,11 @@ return. Both are explicit, gesture-triggered, and never continuous.
 - **MUST** speak the qualification, not just the text. *"Low confidence: bus four
   two A"* is honest; reading it flatly implies a certainty the model did not have.
 - **MUST NOT** block Walk Mode. Walk guidance continues throughout.
+
+Current implementation: bundled ML Kit Latin text recognition on the phone CPU.
+The old `/explore` JPEG upload and retry path is deleted. `READING` is a UI and
+speech state only; camera analysis, guarded NPU detection/segmentation, risk and
+safety feedback remain active, and safety speech may pre-empt the OCR readout.
 
 ### 18.2 Scene Mode — ask about what is in front
 

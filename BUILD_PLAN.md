@@ -28,7 +28,7 @@ phone established the portable NPU path on the smaller production variant.
 | Segmentation | SegFormer-B0 ADE20K, every 3rd frame, **guarded NPU rung**. Probe: **11.33 ms NPU vs 150.25 ms CPU** on a public fixture |
 | Guidance | Reaches reasoned verdicts — `CENTRE_BLOCKED_DIRECTION_UNCLEAR` with left walkable and centre blocked, not a generic pause |
 | Network in the walk path | **None.** `api.analyze`, the multipart assembly and the retry loop are deleted, not toggled |
-| Tests | **49 unit tests, 0 failures** |
+| Tests | **56 unit tests + 1 on-device OCR test, 0 failures** |
 
 ### Cards complete
 
@@ -38,6 +38,56 @@ phone established the portable NPU path on the smaller production variant.
 | **A1–A4** | `perception/`, `spatial/`, `risk/`, `config/` in Kotlin — canonicalization, tracker, corridors, proximity, risk score, `selectAction` cascade, `AlertStateMachine`. All pinned by the golden vectors |
 | **A3 surfaces** | `Surfaces.kt`, `SegFormerSegmenter.kt`, `SurfaceEvidenceBuilder.kt` |
 | **A6** | `inference/` seam + `LocalWalkPipeline` + the `WalkController` rewire |
+| **A8** | Bundled ML Kit OCR, local confidence/route parsing, and uninterrupted walking safety during a read. Verified on the 12 GB phone with `BUS 42A` |
+
+### NEXT AGENT — start here: real on-device VLM
+
+The user explicitly rejected making detector/OCR templates stand in for scene
+understanding. **Let the VLM own Scene Mode and semantic text comprehension.**
+Do not add testing buttons; when a physical interaction must be checked, install
+the build and ask the user to perform the existing gesture.
+
+Current boundary:
+
+- Explore/Read is complete and local (A8). ML Kit reads text; it is not a
+  language model and must not be described as comprehension.
+- `SceneDescriber` and `TargetLocator` still use the old `/vlm/query` and
+  `/vlm/locate` endpoints. With no coordinator they say `Connection lost`.
+  This is known unfinished work, not an OCR failure.
+- A detector-derived Scene experiment was built and tested locally, then
+  deliberately removed before commit at the user's direction. Do not restore it.
+- The current 12 GB iQOO 15 is sufficient for implementation and the 450M/1.6B
+  bring-up. Reserve the 16 GB phone for final larger-model validation.
+- An `sdkmanager` attempt to install NDK `29.0.14206865` and CMake `3.31.6` was
+  interrupted before completion; neither directory was present when checked.
+  Verify `.android-toolchain/sdk/ndk` and `cmake`, then rerun if absent.
+
+Implementation order:
+
+1. Install/verify NDK 29 and CMake. Pin an audited llama.cpp revision; do not use
+   an unvetted community AAR.
+2. Build arm64-v8a llama.cpp + `libmtmd` with `GGML_NATIVE=OFF`,
+   `GGML_CPU_KLEIDIAI=ON`, `GGML_OPENMP=OFF`, `GGML_LLAMAFILE=OFF`, and
+   `LLAMA_OPENSSL=OFF`. Add the smallest JNI boundary needed for one image plus
+   one prompt.
+3. Implement the Class-B lifecycle from `docs/SCENE_MODE_VLM.md`: check free
+   memory with the fixed 800 MB margin, load model + mmproj, run exactly one
+   inference, close every native object, verify memory reclaim, then return.
+   Cancellation/timeout must close deterministically.
+4. Bring up `LFM2.5-VL-450M` first on the current 12 GB phone, then switch the
+   same interface to the planned `LFM2.5-VL-1.6B` assets. Record URLs, licences,
+   SHA-256 values, load time, first answer, repeated answer, peak memory and
+   reclaim in `docs/SCENE_MODE_VLM.md`.
+5. Only after a fixture proves real image-question answering, replace
+   `SceneDescriber.post`. Route semantic questions about recognized text through
+   the VLM itself; do not concatenate an OCR template and call it comprehension.
+6. Keep the continuous YOLO/SegFormer safety loop isolated. The VLM is one-shot,
+   CPU-side on-device inference and is never part of the NPU claim.
+
+Upstream reference verified on 12 September 2026: llama.cpp documents Android
+arm64 cross-compilation in `docs/build.md` and multimodal inference through
+`libmtmd` / `tools/mtmd/mtmd-cli.cpp`. Re-check the pinned revision's API before
+writing JNI because this interface moves quickly.
 
 ### Two Android packaging lessons, both paid for in debugging time
 
@@ -1325,10 +1375,11 @@ normalize with ImageNet mean `[0.485, 0.456, 0.406]` / std `[0.229, 0.224, 0.225
 > floor is, incorrectly. The ImageNet constants stay relevant **only** to the
 > Python reference implementation during parity checks.
 
-### P0.3.5 — ML Kit (no download)
+### P0.3.5 — ML Kit (no runtime download) **[COMPLETE]**
 
-ML Kit text recognition ships its model inside the Play-services-backed
-dependency. Nothing to stage. Added as a Gradle dependency in [A8](#a8--explore-mode-ocr).
+ML Kit text recognition ships its model inside the bundled dependency. Nothing
+to stage or fetch when the feature runs. Added and verified in
+[A8](#a8--explore-mode-ocr).
 
 ### P0.3.6 — VLM, 16 GB stretch only
 
@@ -1915,9 +1966,9 @@ than queueing.
 
 ---
 
-## A8 — Explore Mode (OCR)
+## A8 — Explore Mode (OCR) **[COMPLETE]**
 
-**Slot:** E-window, 30 min · **Gate:** R5-adjacent · **Phone:** to verify
+**Slot:** E-window, 30 min · **Gate:** R5-adjacent · **Phone:** verified
 
 ```kotlin
 implementation("com.google.mlkit:text-recognition:16.0.1")
@@ -1938,6 +1989,19 @@ replacing the `api.readText` call. Extract text and any route-number token
 
 **Acceptance:** a printed sign is read aloud with its qualification, and Walk
 guidance continues uninterrupted throughout.
+
+**Landed 12 September 2026.** `ExploreController` no longer receives a
+`DrishtiApi`: the multipart JPEG upload, conflict retry and transport-error path
+were deleted. `OnDeviceTextReader` opens the bundled Latin recognizer for one
+still, computes character-weighted element confidence, closes it, and returns
+the existing `ReadTextResponse` shape. The original route-token regex is ported
+exactly. `READING` now keeps the walking inference loop active, so safety speech
+can pre-empt OCR instead of leaving a blind interval.
+
+Verification on the current 12 GB iQOO 15 (Android 16): an instrumented test
+rendered `BUS 42A` into a JPEG on-device, passed it through the production
+reader, and asserted both recognized text and route `42A`. Result: **1 test,
+0 failures**, complete test case **89 ms**; JVM suite: **56 tests, 0 failures**.
 
 ---
 

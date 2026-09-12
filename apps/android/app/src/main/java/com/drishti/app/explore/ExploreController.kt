@@ -1,38 +1,23 @@
 package com.drishti.app.explore
 
+import android.util.Log
 import com.drishti.app.R
 import com.drishti.app.feedback.GuidanceStrings
 import com.drishti.app.feedback.SpeechEngine
-import com.drishti.app.net.ApiResult
-import com.drishti.app.net.DrishtiApi
 import com.drishti.app.net.OcrConfidenceQualification
 import com.drishti.app.net.ReadTextResponse
-import com.drishti.app.net.apiCall
 import com.drishti.app.walk.CameraFramePipeline
-import kotlinx.coroutines.delay
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
- * On-demand OCR. The caller pauses the Walk loop (mode = READING), invokes this,
- * then resumes. English only — the backend rejects other languages.
+ * On-demand, offline OCR. The walking inference loop continues while this reads
+ * one still; safety guidance therefore remains able to pre-empt the readout.
  */
 class ExploreController(
-    private val api: DrishtiApi,
     private val pipeline: CameraFramePipeline,
     private val speech: SpeechEngine,
     private val strings: GuidanceStrings,
+    private val reader: OnDeviceTextReader = OnDeviceTextReader(),
 ) {
-    private val jpegType = "image/jpeg".toMediaType()
-    private val textType = "text/plain".toMediaType()
-
-    private sealed interface Attempt {
-        data class Done(val response: ReadTextResponse) : Attempt
-        data object RetryOnce : Attempt
-        data object GiveUp : Attempt
-    }
-
     /** @return the read result on success (for on-screen display), else null. */
     suspend fun readTextOnce(): ReadTextResponse? {
         speech.say(strings.string(R.string.explore_listening), flush = true)
@@ -41,43 +26,26 @@ class ExploreController(
             speech.say(strings.string(R.string.explore_unavailable), flush = true)
             return null
         }
-        var attempt = post(jpeg)
-        if (attempt is Attempt.RetryOnce) {
-            delay(700)
-            attempt = post(jpeg)
-        }
-        return when (attempt) {
-            is Attempt.Done -> {
-                announce(attempt.response)
-                attempt.response
-            }
-            Attempt.RetryOnce -> {
-                speech.say(strings.string(R.string.explore_busy), flush = true)
+        return runCatching { reader.read(jpeg) }.fold(
+            onSuccess = { response ->
+                Log.i(
+                    TAG,
+                    "local OCR ready: quality=${response.confidenceQualification}, " +
+                        "characters=${response.text.length}, routes=${response.routeNumbers.size}, " +
+                        "decode=%.2f ms, inference=%.2f ms".format(
+                            response.timings.decodeMs,
+                            response.timings.ocrMs,
+                        ),
+                )
+                announce(response)
+                response
+            },
+            onFailure = { error ->
+                Log.e(TAG, "local OCR failed", error)
+                speech.say(strings.string(R.string.explore_unavailable), flush = true)
                 null
-            }
-            Attempt.GiveUp -> null // already voiced
-        }
-    }
-
-    private suspend fun post(jpeg: ByteArray): Attempt {
-        val frame = MultipartBody.Part.createFormData("frame", "explore.jpg", jpeg.toRequestBody(jpegType))
-        val mode = "READ_TEXT".toRequestBody(textType)
-        val lang = "en".toRequestBody(textType)
-        return when (val r = apiCall { api.explore(frame, mode, lang) }) {
-            is ApiResult.Ok -> Attempt.Done(r.value)
-            is ApiResult.Failure -> {
-                if (r.code == "CONFLICT") {
-                    Attempt.RetryOnce
-                } else {
-                    speech.say(strings.string(R.string.explore_unavailable), flush = true)
-                    Attempt.GiveUp
-                }
-            }
-            is ApiResult.Transport -> {
-                speech.say(strings.string(R.string.conn_lost), flush = true)
-                Attempt.GiveUp
-            }
-        }
+            },
+        )
     }
 
     /**
@@ -99,4 +67,6 @@ class ExploreController(
             )
         }
     }
+
+    private companion object { const val TAG = "ExploreController" }
 }

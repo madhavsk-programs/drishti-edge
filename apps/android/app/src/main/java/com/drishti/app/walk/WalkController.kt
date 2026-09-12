@@ -142,7 +142,7 @@ class WalkController(
     private val spatial = SpatialAudioEngine()
     private val gyro = GyroSteering(app)
     private val focus = AudioFocusManager(app)
-    private val explore = ExploreController(api, pipeline, speech, strings)
+    private val explore = ExploreController(pipeline, speech, strings)
     private val scene = SceneDescriber(api, pipeline, speech, strings, VoicePrompt(app))
     private val locator = TargetLocator(api, speech, strings)
     private val hazards = HazardReporter(api, pipeline, speech, strings)
@@ -317,7 +317,7 @@ class WalkController(
 
     private fun onCameraFrame(image: ImageProxy) {
         val mode = _state.value.mode
-        if (mode != WalkMode.WALKING) { image.close(); return }
+        if (!mode.keepsWalkInferenceActive()) { image.close(); return }
         val now = System.currentTimeMillis()
         if (now < nextAllowedAtMs || !gate.tryBegin()) { image.close(); return }
 
@@ -403,14 +403,14 @@ class WalkController(
     }
 
     private fun applyResponse(resp: com.drishti.app.net.FrameAnalysisResponse) {
-        // A response from a request that was in flight when the user switched to
-        // Explore / Scene / SOS must not speak or vibrate over that mode.
-        if (_state.value.mode != WalkMode.WALKING) return
+        // Read is deliberately concurrent with walking safety. Other explicit
+        // modes suppress results from frames already in flight.
+        if (!_state.value.mode.keepsWalkInferenceActive()) return
         val verdict = freshness.evaluate(
             FrameFreshnessGate.Input(
                 responseSessionId = resp.sessionId,
                 activeSessionId = sessionId,
-                sessionRunning = _state.value.mode == WalkMode.WALKING,
+                sessionRunning = _state.value.mode.keepsWalkInferenceActive(),
                 frameId = resp.frameId,
                 overlayValidUntil = parseInstant(resp.overlay.validUntil),
                 capturedAt = parseInstant(resp.capturedAt),

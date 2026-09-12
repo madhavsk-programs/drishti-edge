@@ -86,6 +86,18 @@
     <string name="screen_unblanked">स्क्रीन चालू।</string>
     <string name="repeat_hint">कोई नई जानकारी नहीं।</string>
 
+    <!-- Settings -->
+    <string name="settings_title">सेटिंग्स</string>
+    <string name="settings_backend">बैकएंड पता</string>
+    <string name="settings_test">कनेक्शन जाँचें</string>
+    <string name="settings_language">बोली जाने वाली भाषा</string>
+    <string name="settings_haptics">कंपन</string>
+    <string name="settings_spatial_audio">स्थानिक ऑडियो</string>
+    <string name="settings_visual_layer">कैमरा और ओवरले दिखाएँ</string>
+    <string name="settings_speech_rate">बोलने की गति</string>
+    <string name="settings_risk">चेतावनी संवेदनशीलता</string>
+    <string name="settings_done">हो गया</string>
+
     <!-- Ask -> Lock -> Guide (target locate) -->
     <string name="locate_working">%1$s ढूंढ रहा हूँ।</string>
     <string name="locate_not_found">%1$s नहीं मिला। रुकें और फिर से देखें।</string>

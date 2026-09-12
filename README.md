@@ -39,7 +39,8 @@ has seen during the walk and is guided to it. Answered from the same detector
 pass the walk loop already ran, so the common case costs no extra inference.
 Nothing is retained after the session ends.
 
-**Read** — on-demand OCR for signs, boards and route numbers.
+**Read** — bundled on-device ML Kit OCR for signs, boards and route numbers.
+It is one-shot, works without a connection, and runs on CPU rather than the NPU.
 
 **Ask** — a spoken question about the scene ahead. On-demand only, never in the
 walking loop.
@@ -87,8 +88,8 @@ once, unload, and only then return — so no two are ever in memory together.
 | Detection | YOLO11, Hexagon NPU | Resident |
 | Surface segmentation | SegFormer-B0 ADE20K | Resident, if its gate passes |
 | Tracking, spatial, risk, guidance | Kotlin | Always |
-| OCR | On-device OCR | On demand |
-| Scene questions and target locating | Optional, gated | On demand |
+| OCR | Bundled ML Kit text recognition, CPU | On demand |
+| Scene questions and target locating | Optional VLM, gated | On demand |
 
 The walking loop above **runs on the phone today** — detection, segmentation,
 tracking, risk and guidance all on-device, with no backend and no network in
@@ -96,6 +97,11 @@ the path. Both YOLO11n and SegFormer now run on guarded QNN HTP sessions, with
 CPU fallback disabled. A warmed live frame on the 12 GB iQOO measured **57.96
 ms total**; the standalone probes measured **3.30 ms** for YOLO and **11.33
 ms** for SegFormer (`BUILD_PLAN.md` §3.5).
+
+Explore Mode is also local now: its former JPEG upload/retry path has been
+deleted. A device instrumented test on the 12 GB iQOO reads a generated
+`BUS 42A` sign and extracts route `42A`; walking safety inference remains active
+during the one-shot read.
 
 Memory is budgeted for the **12 GB** device variant and has now been exercised
 on both 12 GB and 16 GB iQOO 15 units. Every model choice has a

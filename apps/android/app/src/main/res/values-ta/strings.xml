@@ -86,6 +86,18 @@
     <string name="screen_unblanked">திரை ஆன்.</string>
     <string name="repeat_hint">புதிய வழிகாட்டல் இல்லை.</string>
 
+    <!-- Settings -->
+    <string name="settings_title">அமைப்புகள்</string>
+    <string name="settings_backend">பின்தள முகவரி</string>
+    <string name="settings_test">இணைப்பைச் சோதிக்கவும்</string>
+    <string name="settings_language">பேச்சு மொழி</string>
+    <string name="settings_haptics">அதிர்வு</string>
+    <string name="settings_spatial_audio">இடஞ்சார் ஒலி</string>
+    <string name="settings_visual_layer">கேமரா மற்றும் மேலடுக்குகளைக் காட்டு</string>
+    <string name="settings_speech_rate">பேச்சு வேகம்</string>
+    <string name="settings_risk">எச்சரிக்கை உணர்திறன்</string>
+    <string name="settings_done">முடிந்தது</string>
+
     <!-- Ask -> Lock -> Guide (target locate) -->
     <string name="locate_working">%1$s தேடுகிறேன்.</string>
     <string name="locate_not_found">%1$s கிடைக்கவில்லை. நின்று மீண்டும் பாருங்கள்.</string>

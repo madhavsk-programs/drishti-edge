@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">DRISHTI</string>
+    <string name="app_name" translatable="false">DRISHTI</string>
 
     <!-- Ready screen -->
     <string name="ready_prompt">Double tap anywhere to start walking.</string>

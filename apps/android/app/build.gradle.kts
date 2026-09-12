@@ -103,10 +103,15 @@ dependencies {
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.kotlinx.coroutines.android)
 
+  // Bundled Latin-script OCR. The model is packaged in the APK, so Explore
+  // Mode is available immediately and never downloads or uploads anything.
+  // ML Kit runs on-device on CPU; it is deliberately outside the NPU claim.
+  implementation("com.google.mlkit:text-recognition:16.0.1")
+
   // On-device inference. Pinned: the Qualcomm SegFormer assets declare ONNX
   // Runtime 1.27.1, and a newer ORT loads an older EPContext model while the
-  // reverse is not true. The AAR ships no QNN backend libraries - see
-  // BUILD_PLAN.md §3.4 for staging them into jniLibs/arm64-v8a/.
+  // reverse is not true. Its qnn-runtime dependency supplies the compatible
+  // backend libraries described in BUILD_PLAN.md §3.4.
   implementation("com.microsoft.onnxruntime:onnxruntime-android-qnn:1.29.0")
 
   // Preferences
