@@ -65,6 +65,12 @@ class SceneVlm private constructor(
      * Cancel an in-flight [ask]. Safe from any thread and safe to call when
      * nothing is running. The answer is discarded rather than truncated — half
      * a sentence spoken to someone crossing a road is worse than silence.
+     *
+     * The native side polls the flag between graph nodes during prefill and
+     * between tokens during generation, so [ask] returns within one node's
+     * compute time — well under a second on the shipping phone — and frees the
+     * model on its way out. Callers wait for that return; they never abandon
+     * the thread.
      */
     fun cancel() {
         cancelRequested = true
@@ -162,32 +168,11 @@ class SceneVlm private constructor(
         @Volatile private var loaded = false
 
         /**
-         * Opt-in marker. **The image path currently hangs** — see
-         * `docs/SCENE_MODE_VLM.md` §8. Until that is fixed this returns null for
-         * ordinary app runs, so a user gesture cannot reach a native call that
-         * never returns and cannot be interrupted.
-         *
-         * Enable it deliberately while working on the bug:
-         *
-         *   adb shell touch \
-         *     /sdcard/Android/data/com.drishti.app.debug/files/scene_vlm_enabled
-         *
-         * Delete this gate, and this comment, in the commit that fixes §8.
-         */
-        const val ENABLE_MARKER = "scene_vlm_enabled"
-
-        /**
-         * @return null when the native library or the model files are absent, or
-         *   while the §8 hang keeps the feature gated. The caller falls back to
-         *   the detection-derived summary and SAYS so, rather than presenting
-         *   silence as "nothing ahead".
+         * @return null when the native library or the model files are absent.
+         *   The caller then tells the user scene description is unavailable,
+         *   rather than presenting silence as "nothing ahead".
          */
         fun create(context: Context): SceneVlm? {
-            val gate = File(context.getExternalFilesDir(null), ENABLE_MARKER)
-            if (!gate.isFile) {
-                Log.w(TAG, "Scene VLM gated off (docs/SCENE_MODE_VLM.md §8); touch $ENABLE_MARKER to enable")
-                return null
-            }
             if (!loaded) {
                 val ok = runCatching { System.loadLibrary("drishti_scene_vlm") }
                     .onFailure { Log.w(TAG, "native library unavailable; Scene VLM disabled", it) }

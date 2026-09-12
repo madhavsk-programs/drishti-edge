@@ -21,6 +21,7 @@
 
 #include <atomic>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -71,6 +72,13 @@ void logCallback(ggml_log_level level, const char * text, void *) {
         LOGE("%s", text);
     } else if (level == GGML_LOG_LEVEL_WARN) {
         LOGW("%s", text);
+    } else if (level == GGML_LOG_LEVEL_INFO) {
+        // mtmd-helper reports "encoding image slice" / "image slice encoded in
+        // N ms" / "decoding image batch" at INFO. Those three lines are what
+        // separate a stall in the CLIP encoder from one in llama_decode, so
+        // they go to logcat at DEBUG: visible with `logcat SceneVlmNative:D`,
+        // silent at the default filter.
+        __android_log_print(ANDROID_LOG_DEBUG, TAG, "%s", text);
     }
 }
 
@@ -111,13 +119,19 @@ Java_com_drishti_app_scene_SceneVlm_nativeLoad(
 
     llama_context_params cparams = llama_context_default_params();
     cparams.n_ctx        = nCtx > 0 ? (uint32_t) nCtx : 4096;
-    // Leave n_batch/n_ubatch at llama.cpp's defaults (2048 / 512). Raising
-    // n_ubatch to n_ctx deadlocks image evaluation on this device — the process
-    // burns ~84 s of CPU inside mtmd_helper_eval_chunks and then blocks
-    // permanently with no crash and no log. llama-mtmd-cli works because it
-    // never changes these; match it.
+    // n_batch/n_ubatch stay at llama.cpp's defaults (2048 / 512), matching
+    // llama-mtmd-cli.
     cparams.n_threads    = vlm->nThreads;
     cparams.n_threads_batch = vlm->nThreads;
+    // Flash attention OFF, here and for the CLIP encoder below. At b10926 the
+    // CPU flash-attention kernel's tiled path (taken for any batch of 64+
+    // rows, so the 80-token image batch but never the short text chunks)
+    // writes past the end of its work buffer on this phone: SIGSEGV in
+    // memset inside ggml_compute_forward_flash_attn_ext. In a -O0 build the
+    // same corruption wedged the process with no crash and no log, which is
+    // the "hang" docs/SCENE_MODE_VLM.md §8 spent an evening on. Measured cost
+    // of the non-fused path on a 350M model over ~110 tokens: within noise.
+    cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
 
     vlm->lctx = llama_init_from_model(vlm->model, cparams);
     if (!vlm->lctx) {
@@ -125,17 +139,27 @@ Java_com_drishti_app_scene_SceneVlm_nativeLoad(
         delete vlm;
         return 0;
     }
+    // Polled by ggml between graph nodes, so a cancel lands within one node's
+    // compute time during prefill as well as during the token loop. That is
+    // what makes §5's "deterministic cancellation" true: the Kotlin side can
+    // wait for nativeAsk to return instead of abandoning the thread. The CLIP
+    // encoder has no such hook through the mtmd API; its whole pass is under
+    // 0.6 s on this phone and is the one window a cancel cannot cut short.
+    llama_set_abort_callback(vlm->lctx, [](void * data) -> bool {
+        return static_cast<SceneVlm *>(data)->cancelled.load();
+    }, vlm);
 
     mtmd_context_params pparams = mtmd_context_params_default();
     pparams.use_gpu        = false;
     pparams.print_timings  = false;
     pparams.n_threads      = vlm->nThreads;
-    // Must stay true. With warmup disabled the CLIP compute buffer is allocated
-    // lazily during the first real image chunk, and on this device that never
-    // returns: the text chunk evaluates, then mtmd_encode blocks forever with no
-    // crash, no tombstone and no error. llama-mtmd-cli warms up by default,
-    // which is why it never sees this.
+    // Warmup allocates the CLIP compute buffer at load rather than on the
+    // first image, so the first Ask pays the same as every later one.
     pparams.warmup         = true;
+    // Same kernel, same reason as the llama context above: the encoder runs
+    // 300 patches through the tiled flash-attention path. Measured on this
+    // phone: 466 ms fused vs 481-524 ms without, i.e. noise.
+    pparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
     if (imageMaxTokens > 0) {
         // The measured lever from §4.2: vision cost is superlinear in tokens.
         pparams.image_max_tokens = imageMaxTokens;
@@ -232,8 +256,9 @@ Java_com_drishti_app_scene_SceneVlm_nativeAsk(
     llama_memory_clear(llama_get_memory(vlm->lctx), true);
 
     // Evaluated chunk by chunk rather than via mtmd_helper_eval_chunks so a
-    // stall is attributable to a specific chunk. The helper is a thin loop over
-    // exactly this call; there is no behavioural difference.
+    // failure is attributable to a specific chunk in logcat. The helper is a
+    // thin loop over exactly this call; there is no behavioural difference.
+    // A cancel surfaces here as a non-zero rc from llama_decode (aborted).
     const size_t nChunks = mtmd_input_chunks_size(chunks);
     LOGI("step: eval %zu chunks", nChunks);
 
@@ -251,7 +276,11 @@ Java_com_drishti_app_scene_SceneVlm_nativeAsk(
     }
     mtmd_input_chunks_free(chunks);
     if (rc != 0) {
-        LOGE("chunk evaluation failed: %d", rc);
+        if (vlm->cancelled.load()) {
+            LOGW("prefill cancelled");
+        } else {
+            LOGE("chunk evaluation failed: %d", rc);
+        }
         return nullptr;
     }
 

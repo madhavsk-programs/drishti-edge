@@ -3,8 +3,9 @@
 > **Variant confirmed: iQOO 15, 16 GB.** This file previously hedged across both
 > SKUs. It no longer needs to.
 >
-> **Status:** contingency. Nothing on the safety path depends on it, it is the
-> last item in the build, and it is the first thing cut under time pressure
+> **Status:** **running on device** — LFM2.5-VL-450M answers inside the app
+> in 1.3–1.8 s (§8). Nothing on the safety path depends on it, and it remains
+> the first thing cut under time pressure
 > ([`../BUILD_PLAN.md` §6.2](../BUILD_PLAN.md#62-time-pressure-cut-order)).
 >
 > **Subordinate to:** [`SAFETY_RULES.md`](SAFETY_RULES.md) and
@@ -467,108 +468,94 @@ Record every SHA-256 in `models/staging/MANIFEST.sha256` (`ARCHITECTURE.md` §7.
 
 ---
 
-## 8. STATUS AT HANDOFF — 12 September 2026, evening
+## 8. The "hang" — resolved 12 September 2026, evening
 
-**Read this before touching Scene Mode.** The model choice is settled and
-measured; the integration is written and builds; **one bug blocks it.**
+**Scene Mode runs inside the app.** Both device tests pass, four consecutive
+runs, twelve answers between **1.3 and 1.8 s** on the 16 GB phone — the same
+figures as `llama-mtmd-cli`. The gate is gone. This section is the record of
+what the bug actually was, because the earlier diagnosis was wrong in an
+instructive way.
 
-### 8.1 What works
+### 8.1 What it was
 
-| | |
-|---|---|
-| Model decision | **Settled by measurement** — LFM2.5-VL-450M Q4_K_M + mmproj Q8_0 (§2, §4.5) |
-| llama.cpp | Pinned **b10926** (`2a3005c23f60cb38dab70b8ea2ddbd969bcf3e87`), fetched by `scripts/bootstrap_llama.sh` |
-| Toolchain | NDK `29.0.14206865` and CMake `3.31.6` installed; `ndkVersion` pinned in `app/build.gradle.kts` |
-| Native build | `app/src/main/cpp/CMakeLists.txt` builds llama + mtmd + the JNI lib through Gradle. All six `.so` package and strip correctly (`libllama.so` 3.3 MB, `libmtmd.so` 1.4 MB) |
-| Library load | `libdrishti_scene_vlm.so` loads in the app; `nativeLoad` succeeds and logs `scene vlm ready` |
-| **Inference via `llama-mtmd-cli`** | **Fully working on this phone** — 1.35 – 1.65 s, correct answers, reads signs verbatim (§4.5) |
-| Unit tests | 56, 0 failures |
+Two defects stacked, and the first hid the second.
 
-### 8.2 The bug — image chunk hangs **inside the app only**
+1. **The app's native build was `-O0`.** AGP passes `CMAKE_BUILD_TYPE=Debug`
+   for the debug variant and `cppFlags += "-O3"` reaches C++ only. From the
+   generated `compile_commands.json`, **173 C translation units** — `ggml.c`,
+   `ggml-cpu.c`, `ggml-quants.c`, `arch/arm/quants.c`, every KleidiAI pack
+   kernel — carried no `-O` flag at all. Every quantised dot product ran
+   unoptimised. That is where the "84 s of CPU" came from, and it is why
+   nothing measured against the Release CLI binaries ever transferred.
+   Fixed: `-DCMAKE_BUILD_TYPE=Release` in `app/build.gradle.kts`'s cmake
+   arguments, for every variant.
 
-`SceneVlm.ask()` reaches `mtmd_helper_eval_chunk_single` and **never returns**:
+2. **llama.cpp b10926's CPU flash-attention kernel writes past its work
+   buffer on this phone.** With the build at `-O3` the "hang" became a
+   tombstone: `SIGSEGV` in `memset` inside
+   `ggml_compute_forward_flash_attn_ext`, at a page boundary, i.e. the 16 KB
+   `K_f32` tile of the tiled path running off the end of `wdata`. The tiled
+   path is taken for any batch of 64+ rows — so the 80-token image batch in
+   the decoder and the 300-patch pass in the CLIP encoder — and never for the
+   short text chunks, which is exactly the "text works, image does not"
+   signature. At `-O0` the same out-of-bounds write landed differently and
+   wedged the process instead of faulting.
+   Fixed: `flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED` on **both** the
+   llama context and the mtmd (CLIP) context in `scene_vlm.cpp`. Measured cost
+   on this phone: encoder 466 ms fused → 481–524 ms without; end to end within
+   noise. Not upstreamed; the pin stays at b10926 and the flag stays off.
 
-```
-scene vlm ready (threads=6, n_ctx=2048)
-step: tokenize
-step: memory_clear
-step: eval 3 chunks
-  chunk 1/3 type=0 tokens=26 n_past=0     <- text
-  chunk 1 done rc=0 n_past=26             <- OK
-  chunk 2/3 type=1 tokens=80 n_past=26    <- image; never completes
-```
+### 8.2 What the earlier analysis got wrong, so nobody repeats it
 
-Character of the failure:
+- "Blocked, not slow; CPU time frozen" was read as a deadlock. It was a
+  corrupted process. The tell that was missed: an identical CPU figure across
+  runs means a *deterministic amount of work then a stop*, which a memory
+  fault produces just as well as a lock.
+- `n_ubatch`, the thread pool, `warmup` and `image_max_tokens` were all
+  "ruled out" — correctly, but each ruling-out was an evening spent on the
+  wrong layer. The first move should have been reading the stuck thread
+  (`/proc/<pid>/task/*/wchan` and `debuggerd -b <pid>`, both usable on a
+  debuggable app without root) and checking `compile_commands.json` for the
+  flags the app was actually built with.
+- The comments in `scene_vlm.cpp` that blamed `n_ubatch = n_ctx` and
+  `warmup = false` for the hang were describing the same bug from two random
+  angles. They have been replaced.
 
-- **Blocked, not slow.** Process CPU time freezes at an identical value across
-  runs (`00:01:24` twice) and never advances again.
-- **No crash, no tombstone, no error log.** `/data/tombstones` holds nothing for
-  the app; the only entries are from an unrelated `llama-bench` segfault.
-- **Text works, image does not.** Chunk 1 (26 text tokens) evaluates cleanly.
-- **The same model, same image size, same libraries answer correctly through
-  `llama-mtmd-cli` on the same phone.** So it is the app process environment or
-  a build difference, not the model, the GGUF, or the pinned revision.
+### 8.3 Cancellation is now real
 
-### 8.3 Already ruled out — do not re-test these
+`llama_set_abort_callback` polls `SceneVlm::cancelled` between graph nodes,
+so a cancel lands during prefill as well as during the token loop;
+`llama_decode` returns 2 (aborted), `nativeAsk` returns null, and the
+`finally` in `SceneVlm.ask()` frees the model. The device test
+`cancelMidInferenceReturnsPromptlyAndReleasesTheModel` cancels 500 ms into a
+call, sees the image chunk abort (`rc=2`) within ~470 ms, and gets a full
+answer from the next call. `SceneDescriber`'s timeout now cancels and
+**waits** for the native unwind rather than abandoning the thread.
 
-| Hypothesis | Result |
-|---|---|
-| `n_ubatch = n_ctx = 2048` | Reverted to llama.cpp defaults (2048 / 512). **Still hangs.** |
-| ggml thread-pool deadlock | Ran with `n_threads = 1`, removing the pool entirely. **Still hangs.** |
-| `warmup = false` deferring the CLIP compute buffer | Set `warmup = true`, matching the CLI. **Still hangs.** |
-| `image_max_tokens = 256` | A no-op for this model: LFM2's branch in `clip.cpp` already sets `set_limit_image_tokens(64, 256)`. Not the cause. |
-| Image malformed / wrong size | The RGB buffer is length-checked against `w*h*3`, and `mtmd_tokenize` succeeds and reports a sensible 80 image tokens. |
+The one window a cancel cannot cut short is the CLIP encoder — the mtmd API
+exposes no abort hook for it — and that pass is under 0.6 s on this phone.
 
-### 8.4 Where to look next, in order
+### 8.4 Operational notes, all paid for
 
-1. **Thread stack size.** Instrumentation runs on a binder thread with a ~1 MB
-   stack; the CLI runs on a normal main thread. Run `ask()` on an explicitly
-   created `Thread(null, body, "scene-vlm", 8 << 20)` and see if it completes.
-   **This was the next experiment and was not run.**
-2. **`CMAKE_BUILD_TYPE`.** AGP configures the debug variant as `Debug`, while the
-   working CLI libraries were built `Release`. Force `Release` for the native
-   build and compare.
-3. **ONNX Runtime coexistence.** The app process has `libonnxruntime.so` and the
-   QNN stack loaded; the CLI process does not. Test by calling `SceneVlm` from a
-   process that has never created a detector or segmenter session.
-4. If all three fail, bisect by calling `mtmd_encode` directly instead of
-   `mtmd_helper_eval_chunk_single`, logging on both sides of it.
+- **`adb install -r` keeps the external files directory.** Gradle's
+  `installDebug` (which uninstalls first) does not. Prefer
+  `adb install -r -t -d app-debug.apk` between iterations and the six staged
+  files survive.
+- **From Git Bash on Windows, pass `adb.exe` a `C:/...` path, not `/c/...`.**
+  With `MSYS_NO_PATHCONV=1` the latter is handed to a Windows binary
+  verbatim, the install reports `Success`, and the package on the phone is
+  unchanged. Verify by pulling the installed APK and comparing the `.so`'s
+  md5 — the run script in this session did exactly that and caught it twice.
+- The phone idles under long instrumentation runs and logcat goes quiet with
+  it; `adb shell svc power stayon usb` before a batch.
+- Step logging (`step: …`, per-chunk lines) is kept at INFO. It is a handful
+  of lines per Ask and it is how a regression would be seen first.
 
-### 8.5 Safety gate currently in place
-
-`SceneVlm.create()` returns null unless `scene_vlm_enabled` exists in the app's
-external files directory. **This is deliberate.** The native call cannot be
-interrupted: `SceneDescriber` wraps it in `withTimeoutOrNull`, but a coroutine
-timeout abandons the stuck thread rather than stopping it, leaking the thread and
-~330 MB for the life of the process. Without the gate, one Ask gesture would do
-that to a user.
-
-Enable it while debugging:
-
-```bash
-adb shell touch /sdcard/Android/data/com.drishti.app.debug/files/scene_vlm_enabled
-```
-
-**Delete the gate and `ENABLE_MARKER` in the commit that fixes §8.2**, and at the
-same time make cancellation real — `nativeCancel` currently only stops the token
-loop, and nothing checks it during chunk evaluation.
-
-### 8.6 Debug scaffolding left in place on purpose
-
-`scene_vlm.cpp` contains step logging (`step: tokenize`, `step: eval N chunks`,
-per-chunk lines) and evaluates chunks one at a time rather than calling
-`mtmd_helper_eval_chunks`. That loop is behaviourally identical to the helper —
-the helper is a thin wrapper over the same call — and it is what localized the
-hang to the image chunk. **Keep it until §8.2 is closed**, then decide whether to
-keep the logging at a lower level.
-
-### 8.7 Other unfinished Scene work
+### 8.5 Still open in Scene / Ask
 
 - `TargetLocator` still calls the dead `/vlm/locate` endpoint and will report
-  `Connection lost`. `SceneDescriber` has been moved off `/vlm/query` and now
-  needs no network at all.
-- Staged on the phone for this work: `lfm25-vl-450m-q4km.gguf` (229,313,568 B)
-  and `lfm25-vl-450m-mmproj-q8.gguf` (102,815,168 B), alongside the four
-  YOLO/SegFormer files. **Reinstalling the app wipes the external files
-  directory** — re-push all of them after any `installDebug` that replaces the
-  package.
+  `Connection lost`. Find must resolve from landmark memory on device
+  (`BUILD_PLAN.md` A5/A10); that work has not started.
+- Staged on the phone: `lfm25-vl-450m-q4km.gguf` (229,313,568 B) and
+  `lfm25-vl-450m-mmproj-q8.gguf` (102,815,168 B) alongside the four
+  YOLO/SegFormer files.

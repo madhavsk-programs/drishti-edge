@@ -5,9 +5,10 @@ import com.drishti.app.feedback.GuidanceStrings
 import com.drishti.app.feedback.SpeechEngine
 import com.drishti.app.feedback.VoicePrompt
 import com.drishti.app.walk.CameraFramePipeline
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -107,15 +108,20 @@ class SceneDescriber(
         }
 
         // Inference is blocking native work; keep it off the caller's thread.
-        // The timeout cancels deterministically rather than abandoning a
-        // running generation, so the model is always freed.
+        // On timeout we raise the cancel flag and then WAIT for the native
+        // call to come back — it polls the flag between graph nodes, so this
+        // is bounded — rather than abandoning a thread that still owns ~330 MB.
+        // The Class B contract is that the model is gone when this returns.
         val started = System.nanoTime()
-        val result = withTimeoutOrNull(ANSWER_TIMEOUT_MS) {
-            withContext(Dispatchers.Default) {
-                model.ask(image.rgb, image.width, image.height, prompt.take(300))
-            }
-        } ?: run {
+        // Deliberately not a child of this coroutine: the timeout must be able
+        // to give up on the *wait* while the native call keeps running to its
+        // (cancelled) end, so it lives in its own scope.
+        val inference = CoroutineScope(Dispatchers.Default).async {
+            model.ask(image.rgb, image.width, image.height, prompt.take(300))
+        }
+        val result = withTimeoutOrNull(ANSWER_TIMEOUT_MS) { inference.await() } ?: run {
             model.cancel()
+            inference.await() // returns Cancelled once the native call unwinds
             speech.speakBlocking(strings.string(R.string.vlm_timeout), maxWaitMs = 8_000L)
             return Attempt.GiveUp
         }

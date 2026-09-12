@@ -45,54 +45,64 @@ frame at **63.63 ms**. The result is not specific to one handset or one export.
 | **A6** | `inference/` seam + `LocalWalkPipeline` + the `WalkController` rewire |
 | **A8** | Bundled ML Kit OCR, local confidence/route parsing, and uninterrupted walking safety during a read. Verified on the 12 GB phone with `BUS 42A` |
 
-### NEXT AGENT — start here: one bug blocks Scene Mode
+### Scene Mode — running on device
 
-**The VLM work is built and measured; it is blocked on a single defect.** The
-full account is [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §8 — read it
-before touching anything here, including the list of hypotheses **already ruled
-out** so you do not spend the evening re-testing them.
+The Scene VLM answers inside the app: **LFM2.5-VL-450M, 1.3–1.8 s per
+question**, twelve answers over four consecutive device-test runs, plus a
+cancellation test that aborts mid-prefill and gets a clean answer on the next
+call. The gate is gone. The "hang" that blocked this was two stacked defects —
+the app's native build compiling every C file at `-O0`, and an out-of-bounds
+write in llama.cpp b10926's CPU flash-attention kernel — and the full account,
+including what the earlier diagnosis got wrong, is
+[`docs/SCENE_MODE_VLM.md` §8](docs/SCENE_MODE_VLM.md#8-the-hang--resolved-12-september-2026-evening).
 
-One-paragraph summary: LFM2.5-VL-450M is the settled Scene model, chosen by
-measurement over Qwen3-VL-2B/4B because initialization latency, not capability
-or memory, is the binding constraint. llama.cpp is pinned at **b10926** and
-builds through Gradle; the JNI bridge loads and the model initializes inside the
-app. Answering works perfectly through `llama-mtmd-cli` on this phone
-(1.35 – 1.65 s, reads signs verbatim). **Inside the app the image chunk of
-`mtmd_helper_eval_chunk_single` never returns** — text chunks evaluate fine,
-CPU time freezes at an identical value across runs, and there is no crash, no
-tombstone and no error. Next experiment, not yet run: call it from a thread with
-an 8 MB stack rather than the ~1 MB binder thread.
+Shipping configuration, both load-bearing: `-DCMAKE_BUILD_TYPE=Release` for
+the native build in every variant, and flash attention **disabled** on both
+the llama and the CLIP context. Neither is a tuning choice.
 
-**`SceneVlm` is gated off** behind a `scene_vlm_enabled` marker file so a user
-gesture cannot reach a native call that never returns and cannot be interrupted
-(§8.5). Remove the gate in the commit that fixes the hang.
+### NEXT AGENT — start here
+
+Two things the demo runbook (Part 5) calls for do not exist yet, and by this
+plan's own cut order (§6.2) both outrank the VLM:
+
+1. **Find from landmark memory (A5 + A10, E7).** `TargetLocator` still posts
+   to the dead `/vlm/locate` and reports `Connection lost`; runbook step 7
+   cannot be performed. Resolution order is landmark memory → live
+   detections, no VLM, and target cues are **dropped, not queued** whenever
+   the risk action is anything but `CLEAR`.
+2. **The diagnostics panel (A7).** Runbook steps 1 and 9 open and close on it
+   — backend in use, inference ms, rolling FPS, thermal, `availMem`, and the
+   NPU/CPU toggle that makes the millisecond count collapse on stage. Today
+   `WalkUiState` carries `lastTotalMs` and nothing else.
+
+Then: delete the dead routes in `DrishtiApi` (`/walk/analyze`, `/explore`,
+`/vlm/*`) so nobody finds one at hour 26 and mistakes it for a dependency; the
+soak and §23.2 checks (E9) on the Release build; freeze and rehearsal (E11).
 
 Standing constraints, unchanged:
 
 - The user explicitly rejected making detector/OCR templates stand in for scene
-  understanding. **Let the VLM own Scene Mode and semantic text comprehension.**
+  understanding. **The VLM owns Scene Mode and semantic text comprehension.**
 - Do not add testing buttons. When a physical interaction must be checked,
   install the build and ask the user to perform the existing gesture. On-device
   instrumented tests are the right tool for native code and are already used.
 - A detector-derived Scene experiment was built and tested locally, then
   deliberately removed before commit at the user's direction. Do not restore it.
-- The user's acceptance bar for Scene Mode, stated directly: **sub-7 s latency
+- The acceptance bar for Scene Mode, stated directly: **sub-7 s latency
   always**, recognising doors, chairs, tables, bottles, bags, people and laptops,
   and reading basic text. The 450M meets it; the 2B and 4B do not (§4.3.3).
 - One historical stash remains: `stash@{0}: Windows Android setup before
   b1c425a handoff`. **Do not pop it wholesale**; inspect individual paths only if
   something is demonstrably missing.
 
-Still open beyond the hang:
+Operational, both paid for this session:
 
-- `TargetLocator` still calls the dead `/vlm/locate` endpoint and reports
-  `Connection lost`. `SceneDescriber` no longer needs a network at all.
-- `nativeCancel` only stops the token loop; nothing checks it during chunk
-  evaluation, so cancellation is not yet deterministic as §5 requires.
-- **Reinstalling the app wipes its external files directory.** Re-push all six
-  staged files (four YOLO/SegFormer, two GGUF) after any `installDebug` that
-  replaces the package — this cost a debugging cycle when the models silently
-  vanished.
+- **`adb install -r -t -d` keeps the external files directory; Gradle's
+  `installDebug` wipes it** (it uninstalls first). Use the former between
+  iterations and the six staged files (four YOLO/SegFormer, two GGUF) survive.
+- From Git Bash, hand `adb.exe` a `C:/…` path. A `/c/…` path with
+  `MSYS_NO_PATHCONV=1` reports `Success` and installs nothing. Verify by
+  pulling the installed APK and comparing the `.so` md5.
 
 ### Two Android packaging lessons, both paid for in debugging time
 

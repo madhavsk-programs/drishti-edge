@@ -100,4 +100,38 @@ class SceneVlmDeviceTest {
         )
         assertTrue("second call failed: $again", again is SceneVlm.Result.Answer)
     }
+
+    /**
+     * Cancellation must be real, not a coroutine giving up on a thread that
+     * keeps running with the model resident (docs/SCENE_MODE_VLM.md §5). The
+     * cancel lands mid-prefill; the call has to come back promptly, as
+     * [SceneVlm.Result.Cancelled], and the model has to be gone — proved by a
+     * full answer immediately afterwards.
+     */
+    @Test
+    fun cancelMidInferenceReturnsPromptlyAndReleasesTheModel() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val vlm = SceneVlm.create(context)
+        assumeTrue("Scene VLM models are not staged on this device", vlm != null)
+        val image = SceneImage.fromJpeg(sign("STOP"))!!
+
+        var result: SceneVlm.Result? = null
+        val worker = Thread {
+            result = vlm!!.ask(image.rgb, image.width, image.height, "Describe the scene in detail.")
+        }
+        worker.start()
+        // Load takes ~200 ms and the image chunk ~900 ms; land inside prefill.
+        Thread.sleep(500)
+        val cancelledAt = System.nanoTime()
+        vlm!!.cancel()
+        worker.join(5_000)
+        val returnedInMs = (System.nanoTime() - cancelledAt) / 1_000_000
+
+        assertTrue("native call did not return after cancel", !worker.isAlive)
+        assertTrue("expected Cancelled, got $result", result is SceneVlm.Result.Cancelled)
+        assertTrue("cancel took $returnedInMs ms", returnedInMs < 2_000)
+
+        val after = vlm.ask(image.rgb, image.width, image.height, "What does the sign say?")
+        assertTrue("call after cancel failed: $after", after is SceneVlm.Result.Answer)
+    }
 }

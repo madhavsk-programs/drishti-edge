@@ -25,8 +25,16 @@ android {
                 // Scene Mode's llama.cpp bridge. The flags live in
                 // app/src/main/cpp/CMakeLists.txt because they were measured on
                 // device — see docs/SCENE_MODE_VLM.md §4.1.
-                arguments += listOf("-DANDROID_STL=c++_shared")
-                cppFlags += "-O3"
+                // Release for every variant. AGP passes CMAKE_BUILD_TYPE=Debug for
+                // the debug app and the NDK toolchain then compiles every C file
+                // (ggml.c, ggml-cpu.c, all the quantised dot-product kernels,
+                // KleidiAI) at -O0 -- verified from compile_commands.json, where
+                // 173 C translation units carried no -O flag at all. A cppFlags
+                // -O3 only reaches C++. The Scene VLM latency numbers in
+                // docs/SCENE_MODE_VLM.md were measured on Release binaries and
+                // only hold for Release binaries. User arguments come after
+                // AGP's own, so this one wins.
+                arguments += listOf("-DANDROID_STL=c++_shared", "-DCMAKE_BUILD_TYPE=Release")
             }
         }
     }
