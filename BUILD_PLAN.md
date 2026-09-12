@@ -14,87 +14,108 @@
 
 ## STATE AT HANDOFF — read this first
 
-Everything below was **executed and verified on this laptop**, not planned. Times
-are from the session that produced this document.
+Everything below was **executed and verified**, not planned. The app runs the
+whole walking loop on the loaner iQOO 15 with no backend and no network.
 
-### Done
+### Working on the loaner, measured
 
 | Item | State |
 |---|---|
-| **GATE P0.1** | **PASSED.** `BUILD SUCCESSFUL in 5m 32s`, `app-debug.apk` 37,009,437 bytes, `:app:test` green |
-| JDK 21 | `C:\Users\yasha\tools\jdk-21.0.12.1+1` (Temurin, zip install, no admin) |
-| Android SDK | `C:\Users\yasha\AppData\Local\Android\Sdk` — platform-36, build-tools 36.0.0, platform-tools r37.0.1 |
-| `gradle.properties` | Linux `org.gradle.java.home` **removed** |
-| `local.properties` | Created, **forward slashes** |
-| Gradle 9.1.0 | Wrapper cache seeded by hand, SHA-256 verified against `distributionSha256Sum` |
-| Export venv | `.venv-export` — torch 2.14.0+cpu, ultralytics 8.4.148, onnxruntime 1.30.0, onnxruntime-qnn 2.6.0 |
-| Vectors venv | `entire-old-codebase/backend/.venv-vectors` |
-| Models | Staged + `models/staging/MANIFEST.sha256` |
-| P0.8 probe | Written: [`apps/android/probe/`](apps/android/probe/) — **not yet wired into `settings.gradle.kts`** |
+| **Walking loop, end to end** | **On-device.** Detection → tracking → corridors → risk → state machine → speech/haptics/overlay, **55 ms/frame** |
+| Detection | YOLO11n, **CPU rung**, correctly aligned boxes on real people and chairs |
+| Segmentation | SegFormer-B0 ADE20K, CPU, every 3rd frame. Corridors report walkable/blocked and the "surface degraded" banner clears |
+| Guidance | Reaches reasoned verdicts — `CENTRE_BLOCKED_DIRECTION_UNCLEAR` with left walkable and centre blocked, not a generic pause |
+| Network in the walk path | **None.** `api.analyze`, the multipart assembly and the retry loop are deleted, not toggled |
+| Tests | **49 unit tests, 0 failures** |
 
-### Staged models
+### Cards complete
 
-| File | Bytes | Notes |
-|---|---|---|
-| `yolo11n.pt` | 5,613,764 | SHA-256 **matches** the parent project's recorded digest |
-| `yolo11n_qnn.onnx` | 3,677,196 | **Use this one.** w8a16, HTP v81, coco128 calibration |
-| `yolo11n_qnn_coco8.onnx` | 3,673,097 | 4-image calibration. Kept only for A/B |
-| `yolo11n_fp32_nchw.onnx` | 10,741,398 | Rung-3 fallback **and** the CPU peer for §6.2 proof 3 |
-| `yolo11n_qnn_intermediate_nhwc.onnx` | 10,756,660 | QNN pipeline by-product. **Not** a fallback |
-| `segformer_base.onnx` + `.data` | 355,814 + 15,083,392 | Both files required together |
-| `ade20k_config.json` | — | 150-entry `id2label`, verified |
-
-### Unknowns resolved by inspection, not assumption
-
-| Was | Now |
+| Card | What landed |
 |---|---|
-| MEASURE A6.1 — ORT Java API | `addQnn(Map<String,String>)`, `addConfigEntry`, `OrtProvider.QNN` — via `javap` |
-| MEASURE P0.3.4 — SegFormer IO | `image` `[1,3,512,512]` uint16 → `class_logits` `[1,150,128,128]` uint16, **logits not argmax** |
-| SegFormer preprocessing | **`[0,1]`, NOT ImageNet mean/std** — normalization is baked into the graph |
-| YOLO QNN IO | `images` `[1,640,640,3]` **NHWC** float32 → `output0` `[1,84,8400]` |
-| ORT Android QNN version | **1.29.0** (Maven *search* API is stale at 1.22.0; metadata is authoritative) |
-| QAIRT version needed | **2.50.x**, from the export's own `ep_compatibility_info` |
-| Playground HTP arch | **v81** — same as the iQOO target |
+| **A0** | `scripts/export_golden.py` → 89 golden cases in 5 files, exported from the production Python modules |
+| **A1–A4** | `perception/`, `spatial/`, `risk/`, `config/` in Kotlin — canonicalization, tracker, corridors, proximity, risk score, `selectAction` cascade, `AlertStateMachine`. All pinned by the golden vectors |
+| **A3 surfaces** | `Surfaces.kt`, `SegFormerSegmenter.kt`, `SurfaceEvidenceBuilder.kt` |
+| **A6** | `inference/` seam + `LocalWalkPipeline` + the `WalkController` rewire |
+
+### Two Android packaging lessons, both paid for in debugging time
+
+Both apply to `:app` and are already committed there. Neither is optional, and
+each fails *silently*:
+
+1. **`jniLibs { useLegacyPackaging = true }`.** AGP's default keeps `.so` files
+   page-aligned inside the APK and never extracts them to `nativeLibraryDir`.
+   QNN `dlopen`s `libQnnHtp.so` by bare name and needs a real file on disk.
+   Symptom: `libQnnHtp.so` is in the APK and still "not found".
+2. **`<uses-native-library>` for `libcdsprpc.so` / `libadsprpc.so` /
+   `libsdsprpc.so`.** Android sandboxes which vendor libraries an app may load.
+   Without these the DSP is unreachable and the error names a QNN device
+   problem, never a linker one.
+
+### ORT Java cannot make a uint16 tensor — affects every quantized-IO model
+
+`ai.onnxruntime.OnnxJavaType` has **no `UINT16`** constant, so a uint16 input
+cannot be constructed at all and `Run` rejects the int16 stand-in:
+
+```
+Unexpected input data type. Actual: (tensor(int16)), expected: (tensor(uint16))
+```
+
+Qualcomm's SegFormer export declares uint16 IO, so this blocked it on **both**
+the CPU and the NPU rung. Fixed offline by
+[`tools/segformer_float_io.py`](tools/segformer_float_io.py), which drops the
+two boundary quant nodes and promotes the float tensors the network already
+computes on. **Lossless** — it removes a round-trip rather than adding one.
+Any other Qualcomm AI Hub model with quantized IO will need the same treatment.
+
+### Getting QAIRT: the browser works, `curl` does not
+
+The §3.4 claim that there is no account-free route is **superseded**. The
+direct zip URL downloads fine **in a real browser** while `curl` gets a flat
+CloudFront **403** regardless of user-agent or referer:
+
+```
+https://softwarecenter.qualcomm.com/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.50.0.260828/v2.50.0.260828.zip
+```
+
+Two caveats, both cost time if unknown:
+
+- The download **truncates near the end** — the trailing central directory is
+  missing, so `unzip` and Python's `zipfile` both refuse the archive. The file
+  data is intact; entries are recoverable by scanning local file headers.
+  Everything under `lib/aarch64-android/` extracted with **CRC verified**.
+- Navigating the tab elsewhere **kills the transfer**. Start it and leave it.
 
 ### Target device — confirmed
 
-**iQOO 15, Snapdragon 8 Elite Gen 5 (SM8850), 16 GB.** The playground OnePlus
-(SM8845) shares **HTP v81** with it, so the `name=81` context binary already
-exported runs on both and every playground result transfers (§5).
+**iQOO 15, Snapdragon 8 Elite Gen 5 (SM8850), HTP v81, 16 GB, Android 16.**
+Measured `availMem` **7,998 MB** of 15,219 MB in normal use — consistent with
+§4.2's warning not to size against the post-reboot figure.
 
-### The one blocker
+### The one blocker — RESOLVED, and replaced by a narrower one
 
-> **QAIRT Android backend libraries.** The ORT AAR ships none; `libonnxruntime.so`
-> dlopen's `libQnnHtp.so` / `libQnnSystem.so` at runtime. Get them via
-> **[Qualcomm Software Center](https://softwarecenter.qualcomm.com/catalog/item/Qualcomm_Software_Center)**
-> — **QPM does not work**, confirmed on this account. Target QAIRT **2.50.x**,
-> stage `lib/aarch64-android/` + `hexagon-v81/unsigned/` into
-> `app/src/main/jniLibs/arm64-v8a/`. Full detail: [§3.4](#34-the-qnn-backend-libraries-are-not-in-the-aar--verified).
+QAIRT libraries are no longer missing. What remains is a **version match**, and
+it is characterised precisely in [§3.5](#35-the-npu-on-real-silicon--where-it-actually-stands).
 
-### Next three commands
+### Running it
 
 ```bash
-cd apps/android && printf '\ninclude(":probe")\n' >> settings.gradle.kts && ./gradlew :probe:installDebug
+export JAVA_HOME=/c/Users/yasha/tools/jdk-21.0.12.1+1 && export ANDROID_HOME=/c/Users/yasha/AppData/Local/Android/Sdk
 ```
 
 ```bash
-adb shell mkdir -p /sdcard/Android/data/com.drishti.probe/files && adb push models/staging/yolo11n_qnn.onnx models/staging/yolo11n_fp32_nchw.onnx models/staging/segformer_base-onnx-w8a16/segformer_base.onnx models/staging/segformer_base-onnx-w8a16/segformer_base.data /sdcard/Android/data/com.drishti.probe/files/
+cd apps/android && ./gradlew :app:testDebugUnitTest :app:installDebug
+```
+
+Models load from the app's external files dir, so swapping one needs no
+rebuild. **Note the `.debug` suffix** on debug builds:
+
+```bash
+adb push models/staging/yolo11n_fp32_nchw.onnx models/staging/yolo11n_qnn.onnx models/staging/segformer_float.onnx models/staging/ade20k_config.json /sdcard/Android/data/com.drishti.app.debug/files/
 ```
 
 ```bash
-adb shell am start -n com.drishti.probe/.ProbeActivity && adb logcat -c && adb logcat -s DrishtiProbe:I
+adb logcat -s WalkController:* OrtYoloDetector:* SegFormer:* LocalWalkPipeline:*
 ```
-
-The probe runs **without** QAIRT and reports honestly — it prints
-`NONE FOUND -- QAIRT libraries are not staged` and still proves APK install,
-model load, both tensor layouts, and the CPU rung. It flips to NPU the moment the
-libraries land, with no code change.
-
-> **Set `JAVA_HOME` and `ANDROID_HOME` in every new shell**, or Gradle will not
-> find the toolchain:
-> ```bash
-> export JAVA_HOME=/c/Users/yasha/tools/jdk-21.0.12.1+1 && export ANDROID_HOME=/c/Users/yasha/AppData/Local/Android/Sdk
-> ```
 
 ---
 
@@ -105,6 +126,7 @@ libraries land, with no code change.
 - [2. Model verification verdict](#2-model-verification-verdict)
 - [3. The runtime decision](#3-the-runtime-decision)
   - [**3.4 The QNN backend libraries are NOT in the AAR**](#34-the-qnn-backend-libraries-are-not-in-the-aar--verified)
+  - [**3.5 The NPU on real silicon — where it stands**](#35-the-npu-on-real-silicon--where-it-actually-stands)
 - [4. The variant — RESOLVED: 16 GB](#4-the-variant--resolved-16-gb)
 - [5. The playground device](#5-the-playground-device)
 - [6. Office Kit and proving on-device AI](#6-office-kit-and-proving-on-device-ai)
@@ -429,8 +451,11 @@ the claim is what is being scored.
 
 ### 3.4 The QNN backend libraries are NOT in the AAR — verified
 
-> **This is the highest-risk item in the build and it was found by inspecting the
-> artifact rather than reading the docs. Act on it first.**
+> **SUPERSEDED IN PART by [§3.5](#35-the-npu-on-real-silicon--where-it-actually-stands).**
+> The AAR's own payload is exactly as described below — that inspection was
+> correct. What it missed is the **dependency graph**: `onnxruntime-android-qnn`
+> pulls `qnn-runtime:2.42.0` transitively, which does ship the backend
+> libraries AND the v81 skel. Read §3.5 before acting on this section.
 
 `com.microsoft.onnxruntime:onnxruntime-android-qnn:1.29.0` was downloaded and
 opened. Its complete native payload is:
@@ -492,12 +517,15 @@ They ship in the **Qualcomm AI Runtime SDK (QAIRT)**, under
 > `ep_compatibility_info.QNNExecutionProvider = v2:6:2.50.40:5.50.0:81:0:0:0`,
 > so the Android backend libraries should match that QAIRT line.
 >
-> Two account-free routes were tried and **both fail**, so neither may be planned
-> around:
+> **CORRECTION — the direct URL does work, in a browser.** The 403 below is a
+> `curl`/bot artifact, not an access control. See the handoff block: the same
+> URL downloads fine from a real browser tab, and QAIRT **2.50.0.260828** was
+> obtained that way with its `lib/aarch64-android/` libraries CRC-verified.
 >
 > | Attempted | Result |
 > |---|---|
-> | `softwarecenter.qualcomm.com/api/download/.../Qualcomm_AI_Runtime_Community/...` | **HTTP 403** on every version string tried |
+> | `softwarecenter.qualcomm.com/api/download/.../Qualcomm_AI_Runtime_Community/...` via **curl** | **HTTP 403** on every version string and header set tried |
+> | the same URL in a **real browser tab** | **Works.** Truncates near the end; recover by scanning local file headers |
 > | `QAIRT_*.zip` on [qualcomm/qai-appbuilder releases](https://github.com/qualcomm/qai-appbuilder/releases) | Contains `arm64x-windows-msvc` only — **no Android** |
 >
 > What you need out of the SDK is small — `lib/aarch64-android/` and the
@@ -598,6 +626,99 @@ Two consequences:
 and Qualcomm's SegFormer assets are a plain public S3 zip, both verified. It is
 **wrong for the runtime side**: the Android backend libraries need a Qualcomm
 account. One signup, one download, done once, entirely within Part 0.
+
+---
+
+### 3.5 The NPU on real silicon — where it actually stands
+
+> **This section supersedes §3.4's headline.** §3.4 says the AAR ships no QNN
+> backend libraries. That was true of the AAR's own payload and is **false of
+> its dependency graph**, which changes the problem completely.
+
+#### Correction: the AAR does bring backend libraries, transitively
+
+`onnxruntime-android-qnn:1.29.0` pulls **`qnn-runtime:2.42.0`** as a transitive
+Maven dependency, and that artifact contains the full set — `libQnnHtp.so`,
+`libQnnSystem.so`, `libQnnHtpV81Stub.so` and, notably,
+**`libQnnHtpV81Skel.so`**, the DSP-side library §3.4 assumed had to come from
+the SDK. The build log shows AGP resolving the collision:
+
+```
+2 files found for path 'lib/arm64-v8a/libQnnHtp.so'
+ - .../app/src/main/jniLibs/arm64-v8a/libQnnHtp.so          (ours, 2.50.0)
+ - .../transformed/qnn-runtime-2.42.0/jni/arm64-v8a/...     (transitive)
+```
+
+The app module's own `jniLibs` wins. So **which** QAIRT runs is a choice, and
+that turns out to be the whole game.
+
+#### Two runtimes, two different failures — both measured on the loaner
+
+| Runtime | `QnnDevice_create` | Model load | Verdict |
+|---|---|---|---|
+| **QAIRT 2.50.0.260828** (staged by hand) | **FAILS** `QNN_DEVICE_ERROR_INVALID_CONFIG` | never reached | Device is not recognised |
+| **qnn-runtime 2.42.0** (from the AAR) | **SUCCEEDS** — FastRPC opens a session, `Created user PD on domain 3`, `libQnnHtpV81Skel.so` handle opened | **FAILS** `Failed to create context from binary. Error code: 5000` | Runtime is fine; the *binary* is wrong for it |
+
+The 2.50.0 failure is not a misconfiguration on our side. It persists with no
+provider options at all, and with `htp_arch=81`, and with `soc_model=SM8850`,
+and with `soc_model=87`. SM8850 is very new silicon and 2.50.0 was built
+2026-08-28; the most economical explanation is that this QAIRT does not yet
+know this SoC.
+
+**So the NPU is one version match away, not one unknown away.** The DSP is
+reachable, the skel loads, a process domain is created. The only thing that
+fails is loading an EPContext binary compiled for **2.50.40** into a **2.42.0**
+runtime.
+
+#### The next work, in preference order
+
+**Option C is the recommendation.** A and B chase a version pin; C removes it.
+
+**C — export YOLO11n as a plain QDQ graph instead of an EPContext binary.**
+An EPContext model is a *precompiled* context blob and is therefore welded to
+the QAIRT that compiled it — that weld is the entire failure above. A QDQ graph
+carries no compiled context: `libQnnHtpPrepare.so` (already in the APK, 80 MB
+of it) compiles it **on the device, at session creation**, against whatever
+runtime is actually present. This is exactly what Qualcomm's SegFormer export
+is, and it is why SegFormer never hit error 5000.
+- Cost: a slow first session — warm it during Walk Mode startup, and consider
+  `ep.context_enable` to cache the compiled result *after* it succeeds once.
+- Payoff: version-independent. It would also survive a future AAR bump.
+- Try: `yolo export format=onnx int8=True` plus ORT's QNN quantization path, or
+  Qualcomm AI Hub's ONNX (not context-binary) output, and confirm the exported
+  graph has **no `EPContext` node** before shipping it.
+
+**A — find a runtime that both knows SM8850 and is ≥ 2.50.40.** Check newer
+`onnxruntime-android-qnn` versions (1.30+) for a newer bundled `qnn-runtime`;
+this is a one-line dependency bump and worth ten minutes before anything else.
+Watch for a QAIRT **2.50.40** release on the Software Center channel — the
+version the export self-reports, and not public as of 2026-09-12.
+
+**B — re-export YOLO11n against QAIRT 2.42.x** so the context binary matches the
+AAR's bundled runtime. The pin comes from the *export toolchain*, not from us,
+so this means installing an `onnxruntime-qnn` whose bundled QAIRT is 2.42.x and
+re-running the export. Cheap to try, but it pins the app to one AAR version
+forever, which is why it ranks below C.
+
+#### How to verify, whichever path
+
+The probe already answers this without touching the app. It reports honestly
+rather than inferring from speed:
+
+```bash
+cd apps/android && ./gradlew :probe:installDebug && adb shell am start -n com.drishti.probe/.ProbeActivity
+```
+
+```bash
+adb logcat -d | grep -iE "onnxruntime|qnn" | grep -v DrishtiProbe
+```
+
+`session.disable_cpu_ep_fallback = "1"` is already set on the NPU rung in both
+the probe and `OrtYoloDetector`, so a silent CPU fallback is impossible: the
+session either runs on the NPU or throws. **The NPU claim stays unmade until
+that session creates.** Until then the honest statement is the one the app
+already logs — detection and segmentation run **on-device on the CPU**, which
+is itself on-device AI, and the NPU is not being claimed.
 
 ---
 

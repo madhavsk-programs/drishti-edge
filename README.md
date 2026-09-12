@@ -24,6 +24,7 @@ else.
 | [`docs/SAFETY_RULES.md`](docs/SAFETY_RULES.md) | Safety contract |
 | [`docs/DEVICE_BUDGET.md`](docs/DEVICE_BUDGET.md) | Memory budget |
 | [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) | Scene Mode vision-language model options |
+| `tools/` | Offline model and vector tooling — golden-vector export, SegFormer float-IO surgery |
 
 ---
 
@@ -88,6 +89,12 @@ once, unload, and only then return — so no two are ever in memory together.
 | Tracking, spatial, risk, guidance | Kotlin | Always |
 | OCR | On-device OCR | On demand |
 | Scene questions and target locating | Optional, gated | On demand |
+
+The walking loop above **runs on the phone today** — detection, segmentation,
+tracking, risk and guidance all on-device at ~55 ms/frame on the iQOO 15, with
+no backend and no network in the path. Both models currently execute on the
+CPU; the NPU rung is implemented and gated, and reports honestly rather than
+falling back silently (`BUILD_PLAN.md` §3.5).
 
 Memory is budgeted for the **12 GB** device variant, which the confirmed 16 GB
 unit exceeds. Every model choice has a
