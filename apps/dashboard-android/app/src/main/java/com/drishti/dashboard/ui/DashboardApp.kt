@@ -49,7 +49,6 @@ import com.drishti.dashboard.ui.screens.PersonScreen
 import com.drishti.dashboard.ui.screens.WallScreen
 import com.drishti.dashboard.ui.theme.Canvas
 import com.drishti.dashboard.ui.theme.ClayTone
-import com.drishti.dashboard.ui.theme.Gold
 import com.drishti.dashboard.ui.theme.Hairline
 import com.drishti.dashboard.ui.theme.HelpTone
 import com.drishti.dashboard.ui.theme.IndigoTone
@@ -82,10 +81,7 @@ fun DashboardApp(viewModel: DashboardViewModel) {
 
     Box(Modifier.fillMaxSize().background(Canvas)) {
         Column(Modifier.fillMaxSize()) {
-            Masthead(
-                peopleOut = snapshot.people.size,
-                source = snapshot.source,
-            )
+            Masthead()
             Box(Modifier.weight(1f)) {
                 when (val route = viewModel.route) {
                     Route.Wall -> WallScreen(viewModel, snapshot, now)
@@ -115,17 +111,16 @@ fun DashboardApp(viewModel: DashboardViewModel) {
 }
 
 /**
- * The masthead.
+ * The masthead: the name, and nothing else.
  *
- * It says where the data comes from, every second the app is open. A
- * monitoring tool that cannot be told apart from a rehearsal is dangerous in
- * exactly the situation it exists for, so the demo badge is in the masthead
- * rather than in an about box.
+ * The data-source badge that used to sit here moved down beside each screen's
+ * heading, so the top bar is a fixed, quiet strip and the thing that changes
+ * (sample versus live) sits next to the thing it describes.
  */
 @Composable
-private fun Masthead(peopleOut: Int, source: DataSource) {
+private fun Masthead() {
     Surface(color = Paper, shadowElevation = 2.dp) {
-        Column(
+        Box(
             Modifier
                 .fillMaxWidth()
                 .background(
@@ -134,53 +129,20 @@ private fun Masthead(peopleOut: Int, source: DataSource) {
                     ),
                 )
                 .statusBarsPadding()
-                .padding(start = 22.dp, end = 20.dp, top = 18.dp, bottom = 18.dp),
+                .padding(horizontal = 22.dp, vertical = 18.dp),
         ) {
-            // Two rows rather than one. At 384dp of logical width the title and
-            // the source badge cannot share a line without the title wrapping,
-            // and a wrapped masthead is the first thing a reader distrusts.
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(percent = 32))
-                        .background(IndigoTone.strong),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Box(
-                        Modifier
-                            .size(15.dp)
-                            .clip(Pill)
-                            .background(Gold),
-                    )
-                }
-                Spacer(Modifier.width(14.dp))
-                Text(
-                    text = "DRISHTI Monitor",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = IndigoTone.ink,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "$peopleOut people in the programme",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = InkMuted,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(Modifier.width(10.dp))
-                SourceBadge(source)
-            }
+            Text(
+                text = "DRISHTI Monitor",
+                style = MaterialTheme.typography.headlineMedium,
+                color = IndigoTone.ink,
+                maxLines = 1,
+            )
         }
     }
 }
 
 @Composable
-private fun SourceBadge(source: DataSource) {
+internal fun SourceBadge(source: DataSource) {
     val tone: Tone = if (source == DataSource.DEMO) ClayTone else IndigoTone
     val label = if (source == DataSource.DEMO) "Sample data" else "Live"
     Row(

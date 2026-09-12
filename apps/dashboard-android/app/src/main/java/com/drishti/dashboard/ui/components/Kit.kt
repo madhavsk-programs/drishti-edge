@@ -411,3 +411,25 @@ fun Rule(modifier: Modifier = Modifier, color: Color = Hairline) {
             .background(color),
     )
 }
+
+/**
+ * Four tiles in two columns. Two rows of two, never a strip that slides:
+ * on a phone in portrait the third and fourth counts would otherwise be
+ * off-screen, and "one of the four numbers is hidden" is the wrong property
+ * for a status wall to have.
+ */
+@Composable
+fun TileGrid(
+    modifier: Modifier = Modifier,
+    gap: androidx.compose.ui.unit.Dp = 10.dp,
+    tiles: List<@Composable (Modifier) -> Unit>,
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(gap)) {
+        tiles.chunked(2).forEach { pair ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                pair.forEach { tile -> tile(Modifier.weight(1f)) }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}

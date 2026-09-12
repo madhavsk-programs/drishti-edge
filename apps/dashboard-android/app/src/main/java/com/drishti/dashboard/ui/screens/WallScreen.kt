@@ -1,18 +1,14 @@
 package com.drishti.dashboard.ui.screens
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +33,8 @@ import com.drishti.dashboard.ui.components.CountTile
 import com.drishti.dashboard.ui.components.PaperCard
 import com.drishti.dashboard.ui.components.PersonCard
 import com.drishti.dashboard.ui.components.SectionHeading
+import com.drishti.dashboard.ui.components.TileGrid
+import com.drishti.dashboard.ui.SourceBadge
 import com.drishti.dashboard.ui.components.BigTextField
 import com.drishti.dashboard.ui.rememberDialer
 import com.drishti.dashboard.ui.theme.IndigoTone
@@ -85,27 +83,25 @@ fun WallScreen(
                 eyebrow = "Right now",
                 title = "Who is out",
                 tone = IndigoTone,
+                trailing = { SourceBadge(snapshot.source) },
             )
         }
 
         item {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                LiveStatus.entries.forEach { status ->
-                    CountTile(
-                        count = counts[status] ?: 0,
-                        label = status.tileLabel(),
-                        tone = status.tone(),
-                        selected = filter == status,
-                        modifier = Modifier.width(158.dp),
-                        onClick = { filter = if (filter == status) null else status },
-                    )
-                }
-            }
+            TileGrid(
+                tiles = LiveStatus.entries.map { status ->
+                    { modifier ->
+                        CountTile(
+                            count = counts[status] ?: 0,
+                            label = status.tileLabel(),
+                            tone = status.tone(),
+                            selected = filter == status,
+                            modifier = modifier,
+                            onClick = { filter = if (filter == status) null else status },
+                        )
+                    }
+                },
+            )
         }
 
         item {

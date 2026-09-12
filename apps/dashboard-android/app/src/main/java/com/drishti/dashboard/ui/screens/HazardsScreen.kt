@@ -1,7 +1,6 @@
 package com.drishti.dashboard.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.CheckCircle
@@ -44,6 +42,8 @@ import com.drishti.dashboard.ui.components.QuietAction
 import com.drishti.dashboard.ui.components.RailCard
 import com.drishti.dashboard.ui.components.Rule
 import com.drishti.dashboard.ui.components.SectionHeading
+import com.drishti.dashboard.ui.components.TileGrid
+import com.drishti.dashboard.ui.SourceBadge
 import com.drishti.dashboard.ui.components.SolidPill
 import com.drishti.dashboard.ui.components.TonePill
 import com.drishti.dashboard.ui.icon
@@ -90,41 +90,19 @@ fun HazardsScreen(
                 eyebrow = "Reported from the street",
                 title = "Hazards",
                 tone = ClayTone,
+                trailing = { SourceBadge(snapshot.source) },
             )
         }
 
         item {
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                CountTile(
-                    count = tally.corroborated,
-                    label = "Confirmed by 2+ people",
-                    tone = HelpTone,
-                    modifier = Modifier.width(168.dp),
-                )
-                CountTile(
-                    count = tally.singleReport,
-                    label = "One report only",
-                    tone = SlateTone,
-                    modifier = Modifier.width(168.dp),
-                )
-                CountTile(
-                    count = tally.peopleAffected,
-                    label = "People caught out",
-                    tone = ClayTone,
-                    modifier = Modifier.width(168.dp),
-                )
-                CountTile(
-                    count = tally.resolved,
-                    label = "Fixed",
-                    tone = SafeTone,
-                    modifier = Modifier.width(168.dp),
-                )
-            }
+            TileGrid(
+                tiles = listOf(
+                    { m -> CountTile(tally.corroborated, "Confirmed by 2+ people", HelpTone, modifier = m) },
+                    { m -> CountTile(tally.singleReport, "One report only", SlateTone, modifier = m) },
+                    { m -> CountTile(tally.peopleAffected, "People caught out", ClayTone, modifier = m) },
+                    { m -> CountTile(tally.resolved, "Fixed", SafeTone, modifier = m) },
+                ),
+            )
         }
 
         item {
