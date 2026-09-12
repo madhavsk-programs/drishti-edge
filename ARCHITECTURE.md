@@ -1484,6 +1484,10 @@ optional locator, and nothing else.
 Dependency-ordered, not clock-ordered. **Stop at the first failed gate and take
 the stated fallback.** A gate is passed by evidence, not by opinion.
 
+> Each gate below is expanded into an executable task card — files to touch,
+> commands to run, acceptance checks, and what to do when it fails — in
+> [`BUILD_PLAN.md`](BUILD_PLAN.md).
+
 ### R0 — Freeze behaviour and evidence
 
 - Tag or branch the known-working laptop implementation.

@@ -20,6 +20,7 @@ else.
 | `apps/dashboard/` | React + Vite coordinator dashboard |
 | `packages/contracts/` | TypeScript API contracts |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Perception and guidance pipeline specification |
+| [`BUILD_PLAN.md`](BUILD_PLAN.md) | Executable build plan — laptop and phone setup, model assets, agent task cards |
 | [`IQOO_PHONE_FIRST_ARCHITECTURE_REVISIONS.md`](IQOO_PHONE_FIRST_ARCHITECTURE_REVISIONS.md) | The technical revision the architecture is built on |
 | [`docs/SAFETY_RULES.md`](docs/SAFETY_RULES.md) | Safety contract |
 | [`docs/DEVICE_BUDGET.md`](docs/DEVICE_BUDGET.md) | 12 GB memory budget |
