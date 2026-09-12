@@ -15,7 +15,15 @@ internal data class OcrConfidenceSample(
 
 internal fun extractRouteNumbers(text: String): List<String> {
     val seen = linkedSetOf<String>()
-    ROUTE_TOKEN.findAll(text.uppercase()).forEach { seen += it.value }
+    // Normalize Unicode decimal digits (including Devanagari ०–९) solely for
+    // route parsing. The displayed and spoken OCR text remains exactly as read.
+    val routeText = buildString(text.length) {
+        text.forEach { ch ->
+            val digit = Character.digit(ch, 10)
+            append(if (digit >= 0) ('0'.code + digit).toChar() else ch)
+        }
+    }
+    ROUTE_TOKEN.findAll(routeText.uppercase()).forEach { seen += it.value }
     return seen.toList()
 }
 
@@ -24,6 +32,7 @@ internal fun buildReadTextResponse(
     confidenceSamples: List<OcrConfidenceSample>,
     decodeMs: Double,
     ocrMs: Double,
+    language: String = "en",
     now: Instant = Instant.now(),
 ): ReadTextResponse {
     val text = rawText.trim().split(Regex("\\s+")).filter(String::isNotEmpty).joinToString(" ")
@@ -48,7 +57,7 @@ internal fun buildReadTextResponse(
         schemaVersion = "1.0.0",
         serverTime = now.toString(),
         mode = "READ_TEXT",
-        language = "en",
+        language = language,
         text = text,
         routeNumbers = extractRouteNumbers(text),
         confidence = confidence,

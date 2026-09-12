@@ -3,6 +3,7 @@ package com.drishti.app.scene
 import com.drishti.app.R
 import com.drishti.app.feedback.GuidanceStrings
 import com.drishti.app.feedback.SpeechEngine
+import com.drishti.app.feedback.SpokenLanguage
 import com.drishti.app.feedback.VoicePrompt
 import com.drishti.app.walk.CameraFramePipeline
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +35,21 @@ class SceneDescriber(
     private val strings: GuidanceStrings,
     private val voice: VoicePrompt,
 ) {
+
+    /**
+     * The shipping 450M checkpoint was device-tested with Tamil input and
+     * echoed the question instead of inspecting the image. Refuse that one
+     * combination explicitly; static Tamil guidance and OCR readout remain
+     * available throughout the app.
+     */
+    suspend fun rejectUnsupportedLanguage(language: SpokenLanguage): Boolean {
+        if (language != SpokenLanguage.TAMIL) return false
+        speech.speakBlocking(
+            strings.string(R.string.vlm_language_unavailable),
+            maxWaitMs = 8_000L,
+        )
+        return true
+    }
 
     data class Result(val question: String, val answer: String, val totalMs: Double)
 
@@ -67,7 +83,8 @@ class SceneDescriber(
      * next guidance line does a `QUEUE_FLUSH`. If we only queued speech, the
      * answer would be cut off mid-sentence and replaced by "STOP, path blocked".
      */
-    suspend fun describeOnce(heard: String?): Result? {
+    suspend fun describeOnce(heard: String?, language: SpokenLanguage): Result? {
+        if (rejectUnsupportedLanguage(language)) return null
         val question = heard ?: strings.string(R.string.vlm_default_prompt)
         if (heard == null && !voice.blocked()) {
             speech.speakBlocking(strings.string(R.string.vlm_no_speech), maxWaitMs = 8_000L)
@@ -86,7 +103,7 @@ class SceneDescriber(
 
         // 3. Answer locally. There is no "busy" state to retry: the model is
         //    loaded for this call alone and nothing else can hold it.
-        return when (val attempt = answer(jpeg, question)) {
+        return when (val attempt = answer(jpeg, question, language)) {
             is Attempt.Done -> {
                 speech.speakBlocking(attempt.text)
                 Result(question = question, answer = attempt.text, totalMs = attempt.totalMs)
@@ -95,7 +112,11 @@ class SceneDescriber(
         }
     }
 
-    private suspend fun answer(jpeg: ByteArray, prompt: String): Attempt {
+    private suspend fun answer(
+        jpeg: ByteArray,
+        prompt: String,
+        language: SpokenLanguage,
+    ): Attempt {
         val model = vlm ?: run {
             speech.speakBlocking(strings.string(R.string.vlm_unavailable), maxWaitMs = 8_000L)
             return Attempt.GiveUp
@@ -117,7 +138,13 @@ class SceneDescriber(
         // to give up on the *wait* while the native call keeps running to its
         // (cancelled) end, so it lives in its own scope.
         val inference = CoroutineScope(Dispatchers.Default).async {
-            model.ask(image.rgb, image.width, image.height, prompt.take(300))
+            model.ask(
+                image.rgb,
+                image.width,
+                image.height,
+                prompt,
+                language,
+            )
         }
         val result = withTimeoutOrNull(ANSWER_TIMEOUT_MS) { inference.await() } ?: run {
             model.cancel()

@@ -593,3 +593,16 @@ gesture captured a viewport-aligned still, ML Kit decoded 50 characters at
 `HIGH` quality in 141.90 ms, and the blocking speech path played the result.
 Trace logs distinguish gesture, capture, recognition, and readout failures
 without adding app controls or logging the recognized text.
+
+### 8.6 Selected-language boundary
+
+Scene's native system prompt now receives the selected answer language instead
+of guessing it from the spoken question. On the 16 GB phone, the Hindi fixture
+answered in Devanagari in 1.87 s and correctly included the visible `EXIT` text.
+
+Tamil was tested more strictly rather than accepted for merely emitting Tamil
+characters. LFM2.5-VL-450M repeated the Tamil question and failed to read the
+fixture sign, including after an English visual-task scaffold. Per operator
+direction, Tamil Scene is out of scope. The app refuses that combination with a
+localized Tamil message; it does not present a fluent-looking non-answer. This
+does not affect Tamil static guidance, Find cues, OCR qualification, or TTS.

@@ -3,6 +3,7 @@ package com.drishti.app.scene
 import android.app.ActivityManager
 import android.content.Context
 import android.util.Log
+import com.drishti.app.feedback.SpokenLanguage
 import java.io.File
 
 private const val TAG = "SceneVlm"
@@ -43,6 +44,7 @@ class SceneVlm private constructor(
         width: Int,
         height: Int,
         prompt: String,
+        answerInstruction: String,
         maxTokens: Int,
     ): String?
 
@@ -82,7 +84,13 @@ class SceneVlm private constructor(
      * @param rgb tight RGB888, [width] * [height] * 3 bytes, already scaled to
      *   [IMAGE_LONG_EDGE]. Callers should use [scaleForVlm].
      */
-    fun ask(rgb: ByteArray, width: Int, height: Int, question: String): Result {
+    fun ask(
+        rgb: ByteArray,
+        width: Int,
+        height: Int,
+        question: String,
+        answerLanguage: SpokenLanguage = SpokenLanguage.ENGLISH,
+    ): Result {
         if (!model.isFile || !mmproj.isFile) return Result.ModelMissing
         if (rgb.size != width * height * 3) {
             Log.e(TAG, "rgb is ${rgb.size} bytes, expected ${width * height * 3}")
@@ -113,7 +121,19 @@ class SceneVlm private constructor(
         liveHandle = handle
 
         val answer = try {
-            if (cancelRequested) null else nativeAsk(handle, rgb, width, height, question, MAX_TOKENS)
+            if (cancelRequested) {
+                null
+            } else {
+                nativeAsk(
+                    handle,
+                    rgb,
+                    width,
+                    height,
+                    question.take(300),
+                    answerLanguage.sceneAnswerInstruction,
+                    MAX_TOKENS,
+                )
+            }
         } catch (exc: Throwable) {
             Log.e(TAG, "inference threw", exc)
             null
@@ -157,7 +177,9 @@ class SceneVlm private constructor(
         private const val THREADS = 6
         private const val CONTEXT_TOKENS = 2048
         private const val IMAGE_MAX_TOKENS = 256
-        private const val MAX_TOKENS = 48
+        // Devanagari can require more tokenizer pieces than the same short
+        // English sentence. This is a ceiling; EOS still ends early.
+        private const val MAX_TOKENS = 72
 
         /** KV cache, the decoded image and llama.cpp's own scratch buffers. */
         private const val WORKING_SET_BYTES = 400L * 1024 * 1024

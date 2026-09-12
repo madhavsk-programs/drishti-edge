@@ -36,6 +36,7 @@
 
     <string name="explore_listening">உரையைப் படிக்கிறது. அசையாமல் இருங்கள்.</string>
     <string name="explore_none">உரை எதுவும் கிடைக்கவில்லை.</string>
+    <string name="explore_clear">தெளிவான உரை: %1$s</string>
     <string name="explore_possible">சாத்தியமான உரை: %1$s</string>
     <string name="explore_route">வழி %1$s.</string>
     <string name="explore_busy">படிப்பான் பணியில். மீண்டும் முயற்சிக்கவும்.</string>
@@ -53,6 +54,7 @@
     <string name="vlm_low_memory">இப்போது காட்சியை விவரிக்க போதுமான காலி நினைவகம் இல்லை.</string>
     <string name="vlm_working">வேலை நடக்கிறது. அசையாமல் இருங்கள்.</string>
     <string name="vlm_unavailable">காட்சி விவரிப்பு இப்போது கிடைக்கவில்லை.</string>
+    <string name="vlm_language_unavailable">காட்சி விளக்கம் இன்னும் தமிழில் கிடைக்கவில்லை.</string>
     <string name="vlm_busy">காட்சி உதவியாளர் பணிமிகுதியில். மீண்டும் முயற்சிக்கவும்.</string>
     <string name="vlm_timeout">அதிக நேரம் ஆனது. மீண்டும் முயற்சிக்கவும்.</string>
     <string name="vlm_mic_denied">காட்சியைப் பற்றிக் கேட்க மைக்ரோஃபோன் அனுமதி தேவை.</string>

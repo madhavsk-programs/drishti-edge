@@ -144,6 +144,10 @@ dependencies {
   // Mode is available immediately and never downloads or uploads anything.
   // ML Kit runs on-device on CPU; it is deliberately outside the NPU claim.
   implementation("com.google.mlkit:text-recognition:16.0.1")
+  // Hindi mode uses the bundled Latin + Devanagari recognizer. Keeping this
+  // bundled is intentional: a first read must not depend on Play Services or
+  // a network download.
+  implementation("com.google.mlkit:text-recognition-devanagari:16.0.1")
 
   // On-device inference. Pinned: the Qualcomm SegFormer assets declare ONNX
   // Runtime 1.27.1, and a newer ORT loads an older EPContext model while the

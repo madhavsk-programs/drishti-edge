@@ -4,6 +4,7 @@ import android.util.Log
 import com.drishti.app.R
 import com.drishti.app.feedback.GuidanceStrings
 import com.drishti.app.feedback.SpeechEngine
+import com.drishti.app.feedback.SpokenLanguage
 import com.drishti.app.net.OcrConfidenceQualification
 import com.drishti.app.net.ReadTextResponse
 import com.drishti.app.walk.CameraFramePipeline
@@ -19,8 +20,8 @@ class ExploreController(
     private val reader: OnDeviceTextReader = OnDeviceTextReader(),
 ) {
     /** @return the read result on success (for on-screen display), else null. */
-    suspend fun readTextOnce(): ReadTextResponse? {
-        Log.i(TAG, "starting local OCR capture")
+    suspend fun readTextOnce(language: SpokenLanguage): ReadTextResponse? {
+        Log.i(TAG, "starting local OCR capture for ${language.tag}")
         speech.say(strings.string(R.string.explore_listening), flush = true)
         val jpeg = pipeline.captureStill(maxWidth = 2048)
         if (jpeg == null) {
@@ -29,7 +30,7 @@ class ExploreController(
             return null
         }
         Log.i(TAG, "OCR captured ${jpeg.size} JPEG bytes")
-        return runCatching { reader.read(jpeg) }.fold(
+        return runCatching { reader.read(jpeg, language) }.fold(
             onSuccess = { response ->
                 Log.i(
                     TAG,
@@ -60,7 +61,7 @@ class ExploreController(
         val line = when (res.confidenceQualification) {
             OcrConfidenceQualification.NONE -> strings.string(R.string.explore_none)
             OcrConfidenceQualification.LOW -> strings.string(R.string.explore_possible, res.text)
-            OcrConfidenceQualification.HIGH -> res.message
+            OcrConfidenceQualification.HIGH -> strings.string(R.string.explore_clear, res.text)
         }
         speech.speakBlocking(line, maxWaitMs = 15_000L)
         res.routeNumbers.forEach { route ->

@@ -202,7 +202,7 @@ JNIEXPORT jstring JNICALL
 Java_com_drishti_app_scene_SceneVlm_nativeAsk(
         JNIEnv * env, jobject, jlong handle,
         jbyteArray jRgb, jint width, jint height,
-        jstring jPrompt, jint maxTokens) {
+        jstring jPrompt, jstring jAnswerInstruction, jint maxTokens) {
 
     auto * vlm = reinterpret_cast<SceneVlm *>(handle);
     if (!vlm || !vlm->mctx || !jRgb) return nullptr;
@@ -228,11 +228,14 @@ Java_com_drishti_app_scene_SceneVlm_nativeAsk(
     // A specific instruction beats "describe this": §4.5 measured the same model
     // missing a backpack when captioning freely and finding it when asked.
     const std::string marker = mtmd_default_marker();
+    const std::string answerInstruction = jstr(env, jAnswerInstruction);
     const std::string prompt =
         "<|im_start|>system\nYou are a careful visual assistant for a blind pedestrian. "
         "Inspect the image before answering. If people are visible, report them first. "
         "Mention only clearly visible objects or readable text; never invent details. "
-        "If uncertain, say so. Answer in one short sentence.<|im_end|>\n"
+        "If uncertain, say so. Answer the visual question directly; never repeat or "
+        "paraphrase the question. Answer in one short sentence. " + answerInstruction +
+        "<|im_end|>\n"
         "<|im_start|>user\n" + marker + "\n" + jstr(env, jPrompt) + "<|im_end|>\n"
         "<|im_start|>assistant\n";
 

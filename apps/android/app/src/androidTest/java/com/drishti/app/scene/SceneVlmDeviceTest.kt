@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.drishti.app.feedback.SpokenLanguage
 import java.io.ByteArrayOutputStream
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -143,6 +144,29 @@ class SceneVlmDeviceTest {
             "Is there a sign in this image? Answer yes or no.",
         )
         assertTrue("second call failed: $again", again is SceneVlm.Result.Answer)
+    }
+
+    @Test
+    fun selectedHindiLanguageProducesDevanagariAnswer() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val vlm = SceneVlm.create(context)
+        assumeTrue("Scene VLM models are not staged on this device", vlm != null)
+        val image = SceneImage.fromJpeg(sign("EXIT"))!!
+
+        val result = vlm!!.ask(
+            image.rgb,
+            image.width,
+            image.height,
+            "इस तस्वीर में क्या दिखाई दे रहा है?",
+            SpokenLanguage.HINDI,
+        )
+
+        assertTrue("expected Hindi answer, got $result", result is SceneVlm.Result.Answer)
+        val answer = (result as SceneVlm.Result.Answer).text
+        assertTrue(
+            "answer did not contain Devanagari text: '$answer'",
+            answer.any { it in '\u0900'..'\u097F' },
+        )
     }
 
     /**

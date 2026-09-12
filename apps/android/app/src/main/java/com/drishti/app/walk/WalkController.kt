@@ -602,7 +602,7 @@ class WalkController(
         _state.value = _state.value.copy(mode = WalkMode.READING)
         spatial.clear()
         haptic.ack()
-        val result = explore.readTextOnce()
+        val result = explore.readTextOnce(settings.language)
         if (result != null) {
             _state.value = _state.value.copy(
                 explore = ExploreCard(
@@ -645,6 +645,11 @@ class WalkController(
         haptic.ack()
         lastTargetSpeech = null
 
+        if (scene.rejectUnsupportedLanguage(settings.language)) {
+            _state.value = _state.value.copy(mode = WalkMode.WALKING)
+            return@launch
+        }
+
         val heard = scene.listenForRequest(settings.language.tag)
         val target = extractLocateTarget(heard)
         if (target != null) {
@@ -656,7 +661,7 @@ class WalkController(
             }
             // Ongoing guidance now flows from targetTracking on each walk frame.
         } else {
-            val result = scene.describeOnce(heard)
+            val result = scene.describeOnce(heard, settings.language)
             if (result != null) {
                 _state.value = _state.value.copy(
                     scene = SceneCard(

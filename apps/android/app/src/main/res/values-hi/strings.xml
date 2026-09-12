@@ -36,6 +36,7 @@
 
     <string name="explore_listening">पाठ पढ़ रहे हैं। स्थिर रहें।</string>
     <string name="explore_none">कोई पाठ नहीं मिला।</string>
+    <string name="explore_clear">स्पष्ट पाठ: %1$s</string>
     <string name="explore_possible">संभावित पाठ: %1$s</string>
     <string name="explore_route">रूट %1$s।</string>
     <string name="explore_busy">रीडर व्यस्त है। फिर कोशिश करें।</string>
@@ -53,6 +54,7 @@
     <string name="vlm_low_memory">अभी दृश्य का वर्णन करने के लिए पर्याप्त खाली मेमोरी नहीं है।</string>
     <string name="vlm_working">काम हो रहा है। स्थिर रहें।</string>
     <string name="vlm_unavailable">दृश्य वर्णन अभी उपलब्ध नहीं है।</string>
+    <string name="vlm_language_unavailable">दृश्य वर्णन अभी तमिल में उपलब्ध नहीं है।</string>
     <string name="vlm_busy">दृश्य सहायक व्यस्त है। फिर कोशिश करें।</string>
     <string name="vlm_timeout">इसमें बहुत समय लगा। फिर कोशिश करें।</string>
     <string name="vlm_mic_denied">दृश्य के बारे में पूछने के लिए माइक्रोफ़ोन की अनुमति चाहिए।</string>

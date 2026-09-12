@@ -33,7 +33,7 @@ frame at **63.63 ms**. The result is not specific to one handset or one export.
 | Segmentation | SegFormer-B0 ADE20K, every 3rd frame, **guarded NPU rung**. Probe: **11.33 ms NPU vs 150.25 ms CPU** on a public fixture |
 | Guidance | Reaches reasoned verdicts — `CENTRE_BLOCKED_DIRECTION_UNCLEAR` with left walkable and centre blocked, not a generic pause |
 | Network in the walk path | **None.** `api.analyze`, the multipart assembly and the retry loop are deleted, not toggled |
-| Tests | **75 unit tests, 0 failures**, plus on-device tests: 1 OCR, 3 Scene VLM (answer, cancellation, real people), and 1 two-finger Explore gesture |
+| Tests | **79 unit tests, 0 failures**, plus on-device tests: 2 OCR (Latin and Hindi/Devanagari), 4 Scene VLM (answer, cancellation, real people, Hindi output), and 1 two-finger Explore gesture |
 
 ### Cards complete
 
@@ -43,7 +43,7 @@ frame at **63.63 ms**. The result is not specific to one handset or one export.
 | **A1–A4** | `perception/`, `spatial/`, `risk/`, `config/` in Kotlin — canonicalization, tracker, corridors, proximity, risk score, `selectAction` cascade, `AlertStateMachine`. All pinned by the golden vectors |
 | **A3 surfaces** | `Surfaces.kt`, `SegFormerSegmenter.kt`, `SurfaceEvidenceBuilder.kt` |
 | **A6** | `inference/` seam + `LocalWalkPipeline` + the `WalkController` rewire |
-| **A8** | Bundled ML Kit OCR, local confidence/route parsing, and uninterrupted walking safety during a read. Verified on the 12 GB phone with `BUS 42A` |
+| **A8** | Bundled ML Kit Latin + Hindi/Devanagari OCR, localized confidence/route announcements, and uninterrupted walking safety during a read. Verified with `BUS 42A` and `बस ४२` |
 
 ### Scene Mode — running on device
 
@@ -82,6 +82,24 @@ viewport-aligned capture -> OCR -> speech path: it decoded 50 characters at
 `HIGH` quality in **141.90 ms** and held the readout until speech completed. No
 backend or connection-retry path was involved.
 
+### Main-app language support — 13 September 2026
+
+The previously dormant English / Hindi / Tamil setting is now selectable and
+persistent. It drives TTS, static guidance, prompts, Find cues, OCR confidence
+qualification and route announcements. Hindi selects ML Kit's bundled Latin +
+Devanagari recognizer; an on-device fixture read `बस ४२` and normalized its
+route token to `42`. Scene now places the selected response language in the
+model's system instruction. A Hindi device fixture answered in Devanagari in
+1.87 s: `एक नीला बैनर जिस पर सफेद अक्षर "EXIT" लिखा है।`
+
+The same strict fixture showed that LFM2.5-VL-450M echoes Tamil questions rather
+than reliably inspecting the image. Per operator direction, Tamil Scene is not
+being implemented: Tamil mode refuses it with a localized message. The rest of
+the main app remains Tamil-localized. ML Kit does not ship a Tamil OCR script
+model, so Tamil mode localizes the readout wrapper but preserves Latin sign text
+verbatim; it does not claim Tamil-script recognition. DRISHTI Monitor remains
+English-only by design and was not touched by this work.
+
 ### NEXT AGENT — start here
 
 The two demo-runbook gaps are closed:
@@ -99,6 +117,9 @@ The two demo-runbook gaps are closed:
   Explore path is verified end to end. Keep using the existing gestures and
   inspect `CameraFramePipeline`, `WalkController`, and `ExploreController`
   logs for future regressions; do not add a test button.
+- **Main-app language routing is implemented.** Hindi Scene and Devanagari OCR
+  are device-verified; Tamil covers the app shell and spoken guidance, while
+  Tamil Scene is explicitly unavailable. The NGO Monitor remains English-only.
 
 What is left, in order:
 

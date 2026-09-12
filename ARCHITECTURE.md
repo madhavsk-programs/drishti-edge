@@ -1217,7 +1217,7 @@ response. The interface is identical.
 
 - **`SpeechEngine`** — TTS, tri-lingual (English, Hindi, Tamil), with
   `SpokenLanguage` selection. Strings in `GuidanceStrings.kt` and the `values-*`
-  resource files.
+  resource files. The selection is persistent and is exposed in Settings.
 - **`SpatialAudioEngine`** + **`SonarMapping`** — directional cue rendering for
   left / centre / right and continuous target panning. This is the directional
   channel for this build (§2.5).
@@ -1322,10 +1322,14 @@ return. Both are explicit, gesture-triggered, and never continuous.
   two A"* is honest; reading it flatly implies a certainty the model did not have.
 - **MUST NOT** block Walk Mode. Walk guidance continues throughout.
 
-Current implementation: bundled ML Kit Latin text recognition on the phone CPU.
-The old `/explore` JPEG upload and retry path is deleted. `READING` is a UI and
-speech state only; camera analysis, guarded NPU detection/segmentation, risk and
-safety feedback remain active, and safety speech may pre-empt the OCR readout.
+Current implementation: bundled ML Kit Latin text recognition on the phone CPU,
+plus its bundled Latin + Devanagari model when Hindi is selected. Confidence
+qualification and route announcements use the selected spoken language, while
+recognized sign text is preserved verbatim. Tamil-script recognition is not a
+shipping capability. The old `/explore` JPEG upload and retry path is deleted.
+`READING` is a UI and speech state only; camera analysis, guarded NPU
+detection/segmentation, risk and safety feedback remain active, and safety
+speech may pre-empt the OCR readout.
 
 ### 18.2 Scene Mode — ask about what is in front
 

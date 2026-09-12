@@ -18,6 +18,11 @@ class OcrResultBuilderTest {
     }
 
     @Test
+    fun `Devanagari digits are normalized for route extraction`() {
+        assertEquals(listOf("42", "17A"), extractRouteNumbers("बस ४२ और १७A"))
+    }
+
+    @Test
     fun `high confidence text is normalized without inventing content`() {
         val result = buildReadTextResponse(
             rawText = "  BUS  42A\nCENTRAL ",
@@ -38,6 +43,21 @@ class OcrResultBuilderTest {
         assertFalse(result.noTextFound)
         assertEquals(22.0, result.timings.totalMs, 0.0)
         assertEquals("1970-01-01T00:00:00Z", result.serverTime)
+        assertEquals("en", result.language)
+    }
+
+    @Test
+    fun `selected response language is carried in the result`() {
+        val result = buildReadTextResponse(
+            rawText = "बस ४२",
+            confidenceSamples = listOf(OcrConfidenceSample(5, 0.9)),
+            decodeMs = 1.0,
+            ocrMs = 2.0,
+            language = "hi-IN",
+        )
+
+        assertEquals("hi-IN", result.language)
+        assertEquals(listOf("42"), result.routeNumbers)
     }
 
     @Test

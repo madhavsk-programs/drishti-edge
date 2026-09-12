@@ -43,12 +43,15 @@ no network call. A target the detector cannot name is refused out loud rather
 than guessed at. Nothing is retained after the session ends.
 
 **Read** — bundled on-device ML Kit OCR for signs, boards and route numbers.
+English uses the Latin recognizer; Hindi uses the Latin + Devanagari recognizer.
 It is one-shot, works without a connection, and runs on CPU rather than the NPU.
 
-**Ask** — a spoken question about the scene ahead, answered on the phone by a
-vision-language model in **1.3 – 1.8 s**. On-demand only, never in the walking
-loop: the model is loaded for exactly one question and freed before the answer
-is spoken.
+**Ask** — an English or Hindi spoken question about the scene ahead, answered on
+the phone by a vision-language model in **1.3 – 1.8 s**. On-demand only, never
+in the walking loop: the model is loaded for exactly one question and freed
+before the answer is spoken. The shipping 450M model does not reliably
+understand Tamil questions, so Tamil mode refuses Scene explicitly instead of
+speaking a plausible but unrelated answer.
 
 **Diagnostics** — a two-finger swipe down shows which accelerator actually ran
 the last frame, its millisecond cost, rolling FPS, thermal status and free RAM,
@@ -121,6 +124,13 @@ deleted. A device instrumented test on the 12 GB iQOO reads a generated
 during the one-shot read. Scene and OCR stills are centre-cropped to the same
 `FILL_CENTER` viewport shown on screen, so both features analyse what the user
 actually aimed at rather than off-screen sensor pixels.
+
+The main app's spoken-language setting is selectable and persistent. English,
+Hindi and Tamil cover static guidance, prompts, Find cues and OCR qualification;
+Hindi additionally selects the bundled Devanagari OCR model. Scene answers in
+English and Hindi. Tamil Scene is deliberately unavailable for the measured
+model limitation above, and Tamil-script OCR is not claimed; OCR text is read
+verbatim rather than translated.
 
 **Find and Ask are local too.** Target locating resolves from landmark memory
 and the live detector view with no model call of its own, and Scene questions
