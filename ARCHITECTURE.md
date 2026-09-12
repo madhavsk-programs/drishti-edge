@@ -1361,7 +1361,7 @@ narrow, honest job.
 | One phone's activity, battery, GPS and safety facts | `POST /api/v1/monitor/telemetry` |
 | The one live participant read by Monitor | `GET /api/v1/monitor/live-person` |
 
-The current event Wi-Fi default is `http://172.26.252.175:8000`; it remains
+The current event Wi-Fi default is `http://172.26.252.170:8000`; it remains
 editable/build-configurable because private addresses change with the network.
 Both data endpoints require the same key from ignored local configuration. The
 coordinator is **monitoring output**, not a dependency of Walk Mode.
@@ -1858,7 +1858,7 @@ VRAM.
 | 4 | Normalized box/point coordinates and target state names are unchanged | `ORIENTED_CAPTURE_NORMALIZED` and `IDLE`/`SEEKING`/`GUIDING`/`ARRIVED`/`LOST` stay exactly as they are. |
 | 5 | Locator confidence becomes nullable | Moondream2 returns a box without a calibrated probability. `null` is the truthful value; a fabricated `0.85` is not. |
 | 6 | A compatibility adapter for the dashboard | It keeps working against the current shapes while it learns phone-owned telemetry. |
-| 7 | `http://172.26.252.175:8000` is the current event-LAN coordinator default | Build-time configuration for observational Monitor telemetry only; **not** a Walk Mode dependency. |
+| 7 | `http://172.26.252.170:8000` is the current event-LAN coordinator default | Build-time configuration for observational Monitor telemetry only; **not** a Walk Mode dependency. |
 
 ---
 

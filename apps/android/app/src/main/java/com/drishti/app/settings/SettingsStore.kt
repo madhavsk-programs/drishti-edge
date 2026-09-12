@@ -32,7 +32,7 @@ data class DrishtiSettings(
     companion object {
         // Current event Wi-Fi. This remains editable in Settings because a
         // laptop's private address changes whenever the network changes.
-        const val DEFAULT_BACKEND_URL = "http://172.26.252.175:8000"
+        const val DEFAULT_BACKEND_URL = "http://172.26.252.170:8000"
     }
 }
 

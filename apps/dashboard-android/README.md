@@ -144,7 +144,7 @@ foreground service.
 ## Live feed
 
 Run [`../coordinator/`](../coordinator/README.md) on the laptop. The current
-event Wi-Fi default is `http://172.26.252.175:8000/`; override it at build time
+event Wi-Fi default is `http://172.26.252.170:8000/`; override it at build time
 with `-PdrishtiCoordinatorUrl=http://<laptop-ip>:8000/` when the network changes.
 
 The same long random key must be present as `DRISHTI_ACCESS_TOKEN` in the

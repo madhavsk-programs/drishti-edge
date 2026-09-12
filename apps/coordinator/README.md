@@ -19,7 +19,7 @@ python -m venv .venv
 ```
 
 On the current Wi-Fi, configure both Android apps to use
-`http://172.26.252.175:8000`. The address changes when the laptop joins a
+`http://172.26.252.170:8000`. The address changes when the laptop joins a
 different network; run `ipconfig` and update the app setting/build property.
 
 ## Endpoints

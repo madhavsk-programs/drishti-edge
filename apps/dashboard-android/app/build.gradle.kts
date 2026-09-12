@@ -49,7 +49,7 @@ android {
 
     defaultConfig {
         val coordinatorUrl = providers.gradleProperty("drishtiCoordinatorUrl")
-            .orElse("http://172.26.252.175:8000/")
+            .orElse("http://172.26.252.170:8000/")
             .get()
         buildConfigField("String", "COORDINATOR_URL", "\"$coordinatorUrl\"")
         buildConfigField(
