@@ -41,3 +41,9 @@ entire-old-codebase/
 venv/
 __pycache__/
 *.py[cod]
+
+# Qualcomm QAIRT runtime libraries. Proprietary ("Confidential and Proprietary
+# - Qualcomm Technologies, Inc." per the SDK headers) and ~16 MB of binary, so
+# they are staged locally and never committed. BUILD_PLAN.md §3.4 documents how
+# to obtain and stage them.
+apps/android/*/src/main/jniLibs/

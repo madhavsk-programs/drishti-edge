@@ -191,9 +191,14 @@ object QnnProbe {
     private fun htpOptions(): Map<String, String> = mapOf(
         "backend_path" to "libQnnHtp.so",
         "htp_performance_mode" to "burst",
-        // 81 = Snapdragon 8 Elite Gen 5 (SM8850) AND 8 Gen 5 (SM8845).
-        "htp_arch" to "81",
-        "profiling_level" to "basic",
+        // htp_arch and soc_model were both tried explicitly (V81 / SM8850) to
+        // work around QNN_DEVICE_ERROR_INVALID_CONFIG on this device; neither
+        // changed the outcome, so QNN's own device auto-detection is left in
+        // charge here rather than guessing at more overrides. See
+        // BUILD_PLAN.md §3.4 for the standing verdict: QAIRT 2.50.0 fails
+        // QnnDevice_create() on this SM8850 unit; QAIRT 2.42.0 (older, via the
+        // ORT AAR's own transitive dependency) creates the device successfully
+        // but cannot load a context binary compiled for the 2.50.x line.
     )
 
     /**
@@ -214,7 +219,7 @@ object QnnProbe {
 
         // Content is irrelevant to a latency measurement; layout and dtype are not.
         val tensor = when (javaType) {
-            OnnxJavaType.UINT16, OnnxJavaType.INT16 -> {
+            OnnxJavaType.INT16 -> {
                 val sb = ShortBuffer.allocate(count)
                 repeat(count) { sb.put(30000.toShort()) }
                 sb.rewind()

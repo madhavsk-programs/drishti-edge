@@ -24,6 +24,12 @@ android {
     buildTypes {
         debug { isDebuggable = true }
     }
+    // QNN's native code dlopen()s "libQnnHtp.so" etc. by bare name, which only
+    // resolves if the .so is a real file under nativeLibraryDir. AGP's default
+    // page-aligned-in-APK packaging never extracts it there.
+    packaging {
+        jniLibs { useLegacyPackaging = true }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

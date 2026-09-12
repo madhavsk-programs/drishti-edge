@@ -1,0 +1,372 @@
+{
+  "cases": [
+    {
+      "name": "above_horizon_unknown",
+      "kind": "direction_for_anchor",
+      "input": {
+        "x": 0.5,
+        "y": 0.1
+      },
+      "expected": {
+        "direction": "UNKNOWN"
+      }
+    },
+    {
+      "name": "below_frame_unknown",
+      "kind": "direction_for_anchor",
+      "input": {
+        "x": 0.5,
+        "y": 1.2
+      },
+      "expected": {
+        "direction": "UNKNOWN"
+      }
+    },
+    {
+      "name": "centre_at_bottom",
+      "kind": "direction_for_anchor",
+      "input": {
+        "x": 0.5,
+        "y": 1.0
+      },
+      "expected": {
+        "direction": "CENTRE"
+      }
+    },
+    {
+      "name": "left_at_bottom",
+      "kind": "direction_for_anchor",
+      "input": {
+        "x": 0.2,
+        "y": 1.0
+      },
+      "expected": {
+        "direction": "LEFT"
+      }
+    },
+    {
+      "name": "right_at_bottom",
+      "kind": "direction_for_anchor",
+      "input": {
+        "x": 0.8,
+        "y": 1.0
+      },
+      "expected": {
+        "direction": "RIGHT"
+      }
+    },
+    {
+      "name": "outside_corridor_left_unknown",
+      "kind": "direction_for_anchor",
+      "input": {
+        "x": 0.02,
+        "y": 1.0
+      },
+      "expected": {
+        "direction": "UNKNOWN"
+      }
+    },
+    {
+      "name": "outside_corridor_right_unknown",
+      "kind": "direction_for_anchor",
+      "input": {
+        "x": 0.98,
+        "y": 1.0
+      },
+      "expected": {
+        "direction": "UNKNOWN"
+      }
+    },
+    {
+      "name": "at_horizon_centre",
+      "kind": "direction_for_anchor",
+      "input": {
+        "x": 0.5,
+        "y": 0.38
+      },
+      "expected": {
+        "direction": "CENTRE"
+      }
+    },
+    {
+      "name": "at_horizon_left_edge",
+      "kind": "direction_for_anchor",
+      "input": {
+        "x": 0.43,
+        "y": 0.38
+      },
+      "expected": {
+        "direction": "LEFT"
+      }
+    },
+    {
+      "name": "mid_depth_centre",
+      "kind": "direction_for_anchor",
+      "input": {
+        "x": 0.5,
+        "y": 0.7
+      },
+      "expected": {
+        "direction": "CENTRE"
+      }
+    },
+    {
+      "name": "mid_depth_left",
+      "kind": "direction_for_anchor",
+      "input": {
+        "x": 0.35,
+        "y": 0.7
+      },
+      "expected": {
+        "direction": "LEFT"
+      }
+    },
+    {
+      "name": "mid_depth_right",
+      "kind": "direction_for_anchor",
+      "input": {
+        "x": 0.65,
+        "y": 0.7
+      },
+      "expected": {
+        "direction": "RIGHT"
+      }
+    },
+    {
+      "name": "fully_inside_corridor",
+      "kind": "bbox_path_overlap",
+      "input": {
+        "detection": {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.45,
+          "y1": 0.8,
+          "x2": 0.55,
+          "y2": 0.99
+        }
+      },
+      "expected": {
+        "path_overlap": 1.0
+      }
+    },
+    {
+      "name": "fully_outside_corridor",
+      "kind": "bbox_path_overlap",
+      "input": {
+        "detection": {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.0,
+          "y1": 0.05,
+          "x2": 0.1,
+          "y2": 0.15
+        }
+      },
+      "expected": {
+        "path_overlap": 0.0
+      }
+    },
+    {
+      "name": "straddles_corridor_edge",
+      "kind": "bbox_path_overlap",
+      "input": {
+        "detection": {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.02,
+          "y1": 0.85,
+          "x2": 0.25,
+          "y2": 0.99
+        }
+      },
+      "expected": {
+        "path_overlap": 0.548387085151228
+      }
+    },
+    {
+      "name": "whole_frame",
+      "kind": "bbox_path_overlap",
+      "input": {
+        "detection": {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.0,
+          "y1": 0.0,
+          "x2": 1.0,
+          "y2": 1.0
+        }
+      },
+      "expected": {
+        "path_overlap": 0.3100000023841858
+      }
+    },
+    {
+      "name": "tiny_box_in_centre",
+      "kind": "bbox_path_overlap",
+      "input": {
+        "detection": {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.49,
+          "y1": 0.95,
+          "x2": 0.51,
+          "y2": 0.99
+        }
+      },
+      "expected": {
+        "path_overlap": 0.9999996109399927
+      }
+    },
+    {
+      "name": "far_small_high_box",
+      "kind": "proximity",
+      "input": {
+        "detection": {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.48,
+          "y1": 0.4,
+          "x2": 0.52,
+          "y2": 0.46
+        }
+      },
+      "expected": {
+        "score": 0.2608887743412299,
+        "band": "FAR"
+      }
+    },
+    {
+      "name": "medium_mid_box",
+      "kind": "proximity",
+      "input": {
+        "detection": {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.4,
+          "y1": 0.45,
+          "x2": 0.55,
+          "y2": 0.62
+        }
+      },
+      "expected": {
+        "score": 0.4546559136493844,
+        "band": "MEDIUM"
+      }
+    },
+    {
+      "name": "near_large_low_box",
+      "kind": "proximity",
+      "input": {
+        "detection": {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.3,
+          "y1": 0.4,
+          "x2": 0.7,
+          "y2": 0.86
+        }
+      },
+      "expected": {
+        "score": 0.8588474329695988,
+        "band": "IMMEDIATE"
+      }
+    },
+    {
+      "name": "immediate_fills_frame",
+      "kind": "proximity",
+      "input": {
+        "detection": {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.05,
+          "y1": 0.1,
+          "x2": 0.95,
+          "y2": 1.0
+        }
+      },
+      "expected": {
+        "score": 1.0,
+        "band": "IMMEDIATE"
+      }
+    },
+    {
+      "name": "zero_area",
+      "kind": "proximity",
+      "input": {
+        "detection": {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.5,
+          "y1": 0.5,
+          "x2": 0.5,
+          "y2": 0.5
+        }
+      },
+      "expected": {
+        "score": 0.22499999999999998,
+        "band": "FAR"
+      }
+    },
+    {
+      "name": "corridor_polygons_default_settings",
+      "kind": "corridor_polygons",
+      "input": {},
+      "expected": {
+        "LEFT": [
+          [
+            0.42,
+            0.38
+          ],
+          [
+            0.47333333333333333,
+            0.38
+          ],
+          [
+            0.35999999999999993,
+            1.0
+          ],
+          [
+            0.08000000000000002,
+            1.0
+          ]
+        ],
+        "CENTRE": [
+          [
+            0.47333333333333333,
+            0.38
+          ],
+          [
+            0.5266666666666666,
+            0.38
+          ],
+          [
+            0.6399999999999999,
+            1.0
+          ],
+          [
+            0.35999999999999993,
+            1.0
+          ]
+        ],
+        "RIGHT": [
+          [
+            0.5266666666666666,
+            0.38
+          ],
+          [
+            0.58,
+            0.38
+          ],
+          [
+            0.9199999999999999,
+            1.0
+          ],
+          [
+            0.6399999999999999,
+            1.0
+          ]
+        ]
+      }
+    }
+  ]
+}

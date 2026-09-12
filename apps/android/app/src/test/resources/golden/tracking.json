@@ -1,0 +1,679 @@
+{
+  "cases": [
+    {
+      "name": "id_persists_across_frames",
+      "settings_overrides": {
+        "track_iou_threshold": 0.2,
+        "track_centre_distance_threshold": 0.12,
+        "track_max_age_frames": 3
+      },
+      "input": {
+        "frames": [
+          {
+            "frame_id": 1,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.4,
+                "y1": 0.3,
+                "x2": 0.6,
+                "y2": 0.9
+              }
+            ]
+          },
+          {
+            "frame_id": 2,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.41,
+                "y1": 0.3,
+                "x2": 0.61,
+                "y2": 0.9
+              }
+            ]
+          },
+          {
+            "frame_id": 3,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.42,
+                "y1": 0.3,
+                "x2": 0.62,
+                "y2": 0.9
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ],
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": 2.312964634635743e-16,
+            "area_change": 2.312964634635743e-16,
+            "motion_dx": 0.010000000000000009,
+            "motion_dy": 0.0
+          }
+        ],
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": 0.0,
+            "area_change": 0.0,
+            "motion_dx": 0.010000000000000009,
+            "motion_dy": 0.0
+          }
+        ]
+      ]
+    },
+    {
+      "name": "new_id_when_label_differs",
+      "settings_overrides": {
+        "track_iou_threshold": 0.2,
+        "track_centre_distance_threshold": 0.12,
+        "track_max_age_frames": 3
+      },
+      "input": {
+        "frames": [
+          {
+            "frame_id": 1,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.4,
+                "y1": 0.3,
+                "x2": 0.6,
+                "y2": 0.9
+              }
+            ]
+          },
+          {
+            "frame_id": 2,
+            "detections": [
+              {
+                "label": "chair",
+                "confidence": 0.9,
+                "x1": 0.4,
+                "y1": 0.3,
+                "x2": 0.6,
+                "y2": 0.9
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ],
+        [
+          {
+            "track_id": 2,
+            "label": "chair",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ]
+      ]
+    },
+    {
+      "name": "expiry_after_max_age",
+      "settings_overrides": {
+        "track_iou_threshold": 0.2,
+        "track_centre_distance_threshold": 0.12,
+        "track_max_age_frames": 3
+      },
+      "input": {
+        "frames": [
+          {
+            "frame_id": 1,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.4,
+                "y1": 0.3,
+                "x2": 0.6,
+                "y2": 0.9
+              }
+            ]
+          },
+          {
+            "frame_id": 2,
+            "detections": []
+          },
+          {
+            "frame_id": 3,
+            "detections": []
+          },
+          {
+            "frame_id": 4,
+            "detections": []
+          },
+          {
+            "frame_id": 9,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.4,
+                "y1": 0.3,
+                "x2": 0.6,
+                "y2": 0.9
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ],
+        [],
+        [],
+        [],
+        [
+          {
+            "track_id": 2,
+            "label": "person",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ]
+      ]
+    },
+    {
+      "name": "survives_gap_within_max_age",
+      "settings_overrides": {
+        "track_iou_threshold": 0.2,
+        "track_centre_distance_threshold": 0.12,
+        "track_max_age_frames": 3
+      },
+      "input": {
+        "frames": [
+          {
+            "frame_id": 1,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.4,
+                "y1": 0.3,
+                "x2": 0.6,
+                "y2": 0.9
+              }
+            ]
+          },
+          {
+            "frame_id": 2,
+            "detections": []
+          },
+          {
+            "frame_id": 3,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.4,
+                "y1": 0.3,
+                "x2": 0.6,
+                "y2": 0.9
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ],
+        [],
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": 0.0,
+            "area_change": 0.0,
+            "motion_dx": 0.0,
+            "motion_dy": 0.0
+          }
+        ]
+      ]
+    },
+    {
+      "name": "approaching_area_growth",
+      "settings_overrides": {
+        "track_iou_threshold": 0.2,
+        "track_centre_distance_threshold": 0.12,
+        "track_max_age_frames": 3
+      },
+      "input": {
+        "frames": [
+          {
+            "frame_id": 1,
+            "detections": [
+              {
+                "label": "car",
+                "confidence": 0.9,
+                "x1": 0.4,
+                "y1": 0.4,
+                "x2": 0.5,
+                "y2": 0.5
+              }
+            ]
+          },
+          {
+            "frame_id": 2,
+            "detections": [
+              {
+                "label": "car",
+                "confidence": 0.9,
+                "x1": 0.38,
+                "y1": 0.38,
+                "x2": 0.52,
+                "y2": 0.52
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        [
+          {
+            "track_id": 1,
+            "label": "car",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ],
+        [
+          {
+            "track_id": 1,
+            "label": "car",
+            "approach_rate": 0.9600000000000013,
+            "area_change": 0.9600000000000013,
+            "motion_dx": 0.0,
+            "motion_dy": 0.0
+          }
+        ]
+      ]
+    },
+    {
+      "name": "receding_area_shrink",
+      "settings_overrides": {
+        "track_iou_threshold": 0.2,
+        "track_centre_distance_threshold": 0.12,
+        "track_max_age_frames": 3
+      },
+      "input": {
+        "frames": [
+          {
+            "frame_id": 1,
+            "detections": [
+              {
+                "label": "car",
+                "confidence": 0.9,
+                "x1": 0.35,
+                "y1": 0.35,
+                "x2": 0.55,
+                "y2": 0.55
+              }
+            ]
+          },
+          {
+            "frame_id": 2,
+            "detections": [
+              {
+                "label": "car",
+                "confidence": 0.9,
+                "x1": 0.4,
+                "y1": 0.4,
+                "x2": 0.5,
+                "y2": 0.5
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        [
+          {
+            "track_id": 1,
+            "label": "car",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ],
+        [
+          {
+            "track_id": 1,
+            "label": "car",
+            "approach_rate": 0.0,
+            "area_change": -0.7500000000000003,
+            "motion_dx": 0.0,
+            "motion_dy": 0.0
+          }
+        ]
+      ]
+    },
+    {
+      "name": "motion_vector_lateral",
+      "settings_overrides": {
+        "track_iou_threshold": 0.2,
+        "track_centre_distance_threshold": 0.12,
+        "track_max_age_frames": 3
+      },
+      "input": {
+        "frames": [
+          {
+            "frame_id": 1,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.1,
+                "y1": 0.4,
+                "x2": 0.2,
+                "y2": 0.8
+              }
+            ]
+          },
+          {
+            "frame_id": 2,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.14,
+                "y1": 0.42,
+                "x2": 0.24,
+                "y2": 0.82
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ],
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": 0.0,
+            "area_change": -5.20417042793042e-16,
+            "motion_dx": 0.03999999999999998,
+            "motion_dy": 0.019999999999999907
+          }
+        ]
+      ]
+    },
+    {
+      "name": "two_objects_keep_separate_ids",
+      "settings_overrides": {
+        "track_iou_threshold": 0.2,
+        "track_centre_distance_threshold": 0.12,
+        "track_max_age_frames": 3
+      },
+      "input": {
+        "frames": [
+          {
+            "frame_id": 1,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.05,
+                "y1": 0.4,
+                "x2": 0.2,
+                "y2": 0.9
+              },
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.7,
+                "y1": 0.4,
+                "x2": 0.85,
+                "y2": 0.9
+              }
+            ]
+          },
+          {
+            "frame_id": 2,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.06,
+                "y1": 0.4,
+                "x2": 0.21,
+                "y2": 0.9
+              },
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.71,
+                "y1": 0.4,
+                "x2": 0.86,
+                "y2": 0.9
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          },
+          {
+            "track_id": 2,
+            "label": "person",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ],
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": 0.0,
+            "area_change": -1.850371707708594e-16,
+            "motion_dx": 0.010000000000000009,
+            "motion_dy": 0.0
+          },
+          {
+            "track_id": 2,
+            "label": "person",
+            "approach_rate": 0.0,
+            "area_change": 0.0,
+            "motion_dx": 0.010000000000000009,
+            "motion_dy": 0.0
+          }
+        ]
+      ]
+    },
+    {
+      "name": "far_jump_creates_new_track",
+      "settings_overrides": {
+        "track_iou_threshold": 0.2,
+        "track_centre_distance_threshold": 0.12,
+        "track_max_age_frames": 3
+      },
+      "input": {
+        "frames": [
+          {
+            "frame_id": 1,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.02,
+                "y1": 0.4,
+                "x2": 0.1,
+                "y2": 0.6
+              }
+            ]
+          },
+          {
+            "frame_id": 2,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.8,
+                "y1": 0.4,
+                "x2": 0.88,
+                "y2": 0.6
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ],
+        [
+          {
+            "track_id": 2,
+            "label": "person",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ]
+      ]
+    },
+    {
+      "name": "centre_distance_association_without_iou",
+      "settings_overrides": {
+        "track_iou_threshold": 0.2,
+        "track_centre_distance_threshold": 0.12,
+        "track_max_age_frames": 3
+      },
+      "input": {
+        "frames": [
+          {
+            "frame_id": 1,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.4,
+                "y1": 0.4,
+                "x2": 0.46,
+                "y2": 0.5
+              }
+            ]
+          },
+          {
+            "frame_id": 2,
+            "detections": [
+              {
+                "label": "person",
+                "confidence": 0.9,
+                "x1": 0.47,
+                "y1": 0.4,
+                "x2": 0.53,
+                "y2": 0.5
+              }
+            ]
+          }
+        ]
+      },
+      "expected": [
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": null,
+            "area_change": null,
+            "motion_dx": null,
+            "motion_dy": null
+          }
+        ],
+        [
+          {
+            "track_id": 1,
+            "label": "person",
+            "approach_rate": 8.673617379884037e-16,
+            "area_change": 8.673617379884037e-16,
+            "motion_dx": 0.06999999999999995,
+            "motion_dy": 0.0
+          }
+        ]
+      ]
+    }
+  ]
+}

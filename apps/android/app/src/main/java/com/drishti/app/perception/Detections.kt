@@ -1,0 +1,131 @@
+package com.drishti.app.perception
+
+/**
+ * Kotlin port of `app/perception/detector.py` (BUILD_PLAN.md task A1).
+ *
+ * Values are [Double], not [Float], so that arithmetic here matches the Python
+ * float64 source bit-for-bit closely enough to pass the golden vectors. Parity
+ * is the point of the port; a narrower type would spend that parity to save
+ * bytes the pipeline does not need.
+ */
+
+/** The 19 audited labels that are allowed to reach the safety engine. */
+val CANONICAL_LABELS: Set<String> = setOf(
+    "person",
+    "chair",
+    "bag",
+    "desk",
+    "bicycle",
+    "motorcycle",
+    "car",
+    "bus",
+    "bench",
+    // `door` is NOT a COCO class. It is kept for parity with the Python source;
+    // the deployed detector cannot produce it and the system does not claim
+    // door detection (docs/SAFETY_RULES.md).
+    "door",
+    "suitcase",
+    "umbrella",
+    "potted plant",
+    "couch",
+    "bed",
+    "tv",
+    "refrigerator",
+    "sink",
+    "toilet",
+)
+
+val LABEL_ALIASES: Map<String, String> = mapOf(
+    "backpack" to "bag",
+    "handbag" to "bag",
+    "dining table" to "desk",
+    "table" to "desk",
+)
+
+/** A detector output before normalization, in pixel coordinates. */
+data class RawDetection(
+    val label: String,
+    val confidence: Double,
+    val x1: Double,
+    val y1: Double,
+    val x2: Double,
+    val y2: Double,
+)
+
+/** A detection normalized to the unit square. */
+data class DetectionCandidate(
+    val label: String,
+    val confidence: Double,
+    val x1: Double,
+    val y1: Double,
+    val x2: Double,
+    val y2: Double,
+)
+
+/**
+ * Two label filterings of ONE detector invocation (ARCHITECTURE.md §9.3).
+ *
+ * [risk] is the audited allowlist that feeds tracking, spatial reasoning and
+ * the risk engine. [all] is the full native COCO output and feeds landmark
+ * memory only — a COCO label says an object is present, it does not establish
+ * that the object obstructs the walking corridor.
+ */
+data class DetectionSet(
+    val risk: List<DetectionCandidate>,
+    val all: List<DetectionCandidate>,
+)
+
+/**
+ * Normalize raw boxes to the unit square.
+ *
+ * @param allowedLabels `null` keeps every above-threshold class.
+ * @param applyAliases MUST be `false` for the full set: the aliases collapse
+ *   `backpack` and `handbag` into `bag`, which discards the exact word a user
+ *   says when asking to be guided to one.
+ */
+fun canonicalizeDetections(
+    detections: List<RawDetection>,
+    width: Int,
+    height: Int,
+    confidenceThreshold: Double,
+    allowedLabels: Set<String>? = CANONICAL_LABELS,
+    applyAliases: Boolean = true,
+): List<DetectionCandidate> {
+    require(width > 0 && height > 0) { "Detection image dimensions must be positive." }
+
+    val canonical = ArrayList<DetectionCandidate>(detections.size)
+    for (item in detections) {
+        if (!item.confidence.isFinite() ||
+            !item.x1.isFinite() || !item.y1.isFinite() ||
+            !item.x2.isFinite() || !item.y2.isFinite()
+        ) {
+            continue
+        }
+        var label = item.label.lowercase()
+        if (applyAliases) {
+            label = LABEL_ALIASES[label] ?: label
+        }
+        if (allowedLabels != null && label !in allowedLabels) continue
+        if (item.confidence < confidenceThreshold) continue
+
+        val x1 = clampUnit(item.x1 / width)
+        val y1 = clampUnit(item.y1 / height)
+        val x2 = clampUnit(item.x2 / width)
+        val y2 = clampUnit(item.y2 / height)
+        if (x1 >= x2 || y1 >= y2) continue
+
+        canonical.add(
+            DetectionCandidate(
+                label = label,
+                confidence = clampUnit(item.confidence),
+                x1 = x1,
+                y1 = y1,
+                x2 = x2,
+                y2 = y2,
+            )
+        )
+    }
+    return canonical
+}
+
+internal fun clampUnit(value: Double): Double = minOf(1.0, maxOf(0.0, value))

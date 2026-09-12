@@ -31,3 +31,4 @@ plugins {
 
 rootProject.name = "DRISHTI"
 include(":app")
+include(":probe")

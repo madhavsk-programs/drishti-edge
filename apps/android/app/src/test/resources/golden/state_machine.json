@@ -1,0 +1,685 @@
+{
+  "cases": [
+    {
+      "name": "critical_bypasses_persistence_immediately",
+      "input": {
+        "steps": [
+          {
+            "at_seconds": 0.0,
+            "proposal": {
+              "action": "STOP",
+              "level": "CRITICAL",
+              "reason_code": "APPROACHING_VEHICLE_CENTRE",
+              "preferred_corridor": "NONE",
+              "evidence_score": 0.95,
+              "critical_track_ids": [
+                3
+              ]
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "action": "STOP",
+          "level": "CRITICAL",
+          "reason_code": "APPROACHING_VEHICLE_CENTRE",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [
+            3
+          ],
+          "speak": true
+        }
+      ]
+    },
+    {
+      "name": "pause_unclear_commits_immediately",
+      "input": {
+        "steps": [
+          {
+            "at_seconds": 0.0,
+            "proposal": {
+              "action": "PAUSE_UNCLEAR",
+              "level": "WARN",
+              "reason_code": "CENTRE_BLOCKED_DIRECTION_UNCLEAR",
+              "preferred_corridor": "NONE",
+              "evidence_score": 0.5,
+              "critical_track_ids": []
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "action": "PAUSE_UNCLEAR",
+          "level": "WARN",
+          "reason_code": "CENTRE_BLOCKED_DIRECTION_UNCLEAR",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [],
+          "speak": true
+        }
+      ]
+    },
+    {
+      "name": "alert_persistence_two_frames_before_move",
+      "input": {
+        "steps": [
+          {
+            "at_seconds": 0.0,
+            "proposal": {
+              "action": "CAUTION",
+              "level": "WARN",
+              "reason_code": "OBSTACLE_NEARBY",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.66,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.2,
+            "proposal": {
+              "action": "MOVE_LEFT",
+              "level": "HIGH",
+              "reason_code": "CENTRE_BLOCKED_CLEARER_SIDE",
+              "preferred_corridor": "LEFT",
+              "evidence_score": 0.7,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.4,
+            "proposal": {
+              "action": "MOVE_LEFT",
+              "level": "HIGH",
+              "reason_code": "CENTRE_BLOCKED_CLEARER_SIDE",
+              "preferred_corridor": "LEFT",
+              "evidence_score": 0.7,
+              "critical_track_ids": []
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "action": "CLEAR",
+          "level": "WATCH",
+          "reason_code": "ALERT_PERSISTENCE_PENDING",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CLEAR",
+          "level": "WATCH",
+          "reason_code": "ALERT_PERSISTENCE_PENDING",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "MOVE_LEFT",
+          "level": "HIGH",
+          "reason_code": "CENTRE_BLOCKED_CLEARER_SIDE",
+          "preferred_corridor": "LEFT",
+          "critical_track_ids": [],
+          "speak": true
+        }
+      ]
+    },
+    {
+      "name": "direction_change_pending_emits_pause",
+      "input": {
+        "steps": [
+          {
+            "at_seconds": 0.0,
+            "proposal": {
+              "action": "MOVE_LEFT",
+              "level": "HIGH",
+              "reason_code": "CENTRE_BLOCKED_CLEARER_SIDE",
+              "preferred_corridor": "LEFT",
+              "evidence_score": 0.7,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.2,
+            "proposal": {
+              "action": "MOVE_LEFT",
+              "level": "HIGH",
+              "reason_code": "CENTRE_BLOCKED_CLEARER_SIDE",
+              "preferred_corridor": "LEFT",
+              "evidence_score": 0.7,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.4,
+            "proposal": {
+              "action": "MOVE_RIGHT",
+              "level": "HIGH",
+              "reason_code": "CENTRE_BLOCKED_CLEARER_SIDE",
+              "preferred_corridor": "RIGHT",
+              "evidence_score": 0.7,
+              "critical_track_ids": []
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "action": "CLEAR",
+          "level": "WATCH",
+          "reason_code": "ALERT_PERSISTENCE_PENDING",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "MOVE_LEFT",
+          "level": "HIGH",
+          "reason_code": "CENTRE_BLOCKED_CLEARER_SIDE",
+          "preferred_corridor": "LEFT",
+          "critical_track_ids": [],
+          "speak": true
+        },
+        {
+          "action": "PAUSE_UNCLEAR",
+          "level": "WARN",
+          "reason_code": "DIRECTION_CHANGE_PENDING",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [],
+          "speak": true
+        }
+      ]
+    },
+    {
+      "name": "alert_persistence_pending_stays_quiet",
+      "input": {
+        "steps": [
+          {
+            "at_seconds": 0.0,
+            "proposal": {
+              "action": "CAUTION",
+              "level": "WARN",
+              "reason_code": "OBSTACLE_NEARBY",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.66,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.2,
+            "proposal": {
+              "action": "MOVE_LEFT",
+              "level": "HIGH",
+              "reason_code": "CENTRE_BLOCKED_CLEARER_SIDE",
+              "preferred_corridor": "LEFT",
+              "evidence_score": 0.7,
+              "critical_track_ids": []
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "action": "CLEAR",
+          "level": "WATCH",
+          "reason_code": "ALERT_PERSISTENCE_PENDING",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CLEAR",
+          "level": "WATCH",
+          "reason_code": "ALERT_PERSISTENCE_PENDING",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [],
+          "speak": false
+        }
+      ]
+    },
+    {
+      "name": "clear_requires_three_frames_to_decay",
+      "input": {
+        "steps": [
+          {
+            "at_seconds": 0.0,
+            "proposal": {
+              "action": "CAUTION",
+              "level": "WARN",
+              "reason_code": "OBSTACLE_NEARBY",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.66,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.2,
+            "proposal": {
+              "action": "CLEAR",
+              "level": "CLEAR",
+              "reason_code": "LOW_RISK_MONITORED",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.1,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.4,
+            "proposal": {
+              "action": "CLEAR",
+              "level": "CLEAR",
+              "reason_code": "LOW_RISK_MONITORED",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.1,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.6,
+            "proposal": {
+              "action": "CLEAR",
+              "level": "CLEAR",
+              "reason_code": "LOW_RISK_MONITORED",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.1,
+              "critical_track_ids": []
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "action": "CLEAR",
+          "level": "WATCH",
+          "reason_code": "ALERT_PERSISTENCE_PENDING",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CLEAR",
+          "level": "CLEAR",
+          "reason_code": "LOW_RISK_MONITORED",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CLEAR",
+          "level": "CLEAR",
+          "reason_code": "LOW_RISK_MONITORED",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CLEAR",
+          "level": "CLEAR",
+          "reason_code": "LOW_RISK_MONITORED",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": false
+        }
+      ]
+    },
+    {
+      "name": "hysteresis_holds_above_warn_exit",
+      "input": {
+        "steps": [
+          {
+            "at_seconds": 0.0,
+            "proposal": {
+              "action": "CAUTION",
+              "level": "WARN",
+              "reason_code": "OBSTACLE_NEARBY",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.66,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.2,
+            "proposal": {
+              "action": "CLEAR",
+              "level": "CLEAR",
+              "reason_code": "LOW_RISK_MONITORED",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.55,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.4,
+            "proposal": {
+              "action": "CLEAR",
+              "level": "CLEAR",
+              "reason_code": "LOW_RISK_MONITORED",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.55,
+              "critical_track_ids": []
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "action": "CLEAR",
+          "level": "WATCH",
+          "reason_code": "ALERT_PERSISTENCE_PENDING",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CLEAR",
+          "level": "CLEAR",
+          "reason_code": "LOW_RISK_MONITORED",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CLEAR",
+          "level": "CLEAR",
+          "reason_code": "LOW_RISK_MONITORED",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": false
+        }
+      ]
+    },
+    {
+      "name": "cooldown_suppresses_repeat_speech",
+      "input": {
+        "steps": [
+          {
+            "at_seconds": 0.0,
+            "proposal": {
+              "action": "CAUTION",
+              "level": "WARN",
+              "reason_code": "OBSTACLE_NEARBY",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.66,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.5,
+            "proposal": {
+              "action": "CAUTION",
+              "level": "WARN",
+              "reason_code": "OBSTACLE_NEARBY",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.66,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 1.0,
+            "proposal": {
+              "action": "CAUTION",
+              "level": "WARN",
+              "reason_code": "OBSTACLE_NEARBY",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.66,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 4.5,
+            "proposal": {
+              "action": "CAUTION",
+              "level": "WARN",
+              "reason_code": "OBSTACLE_NEARBY",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.66,
+              "critical_track_ids": []
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "action": "CLEAR",
+          "level": "WATCH",
+          "reason_code": "ALERT_PERSISTENCE_PENDING",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CAUTION",
+          "level": "WARN",
+          "reason_code": "OBSTACLE_NEARBY",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": true
+        },
+        {
+          "action": "CAUTION",
+          "level": "WARN",
+          "reason_code": "OBSTACLE_NEARBY",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CAUTION",
+          "level": "WARN",
+          "reason_code": "OBSTACLE_NEARBY",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": true
+        }
+      ]
+    },
+    {
+      "name": "level_increase_speaks_within_cooldown",
+      "input": {
+        "steps": [
+          {
+            "at_seconds": 0.0,
+            "proposal": {
+              "action": "CAUTION",
+              "level": "WARN",
+              "reason_code": "OBSTACLE_NEARBY",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.66,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.5,
+            "proposal": {
+              "action": "STOP",
+              "level": "CRITICAL",
+              "reason_code": "APPROACHING_VEHICLE_CENTRE",
+              "preferred_corridor": "NONE",
+              "evidence_score": 0.95,
+              "critical_track_ids": [
+                3
+              ]
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "action": "CLEAR",
+          "level": "WATCH",
+          "reason_code": "ALERT_PERSISTENCE_PENDING",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "STOP",
+          "level": "CRITICAL",
+          "reason_code": "APPROACHING_VEHICLE_CENTRE",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [
+            3
+          ],
+          "speak": true
+        }
+      ]
+    },
+    {
+      "name": "clear_from_clear_stays_silent",
+      "input": {
+        "steps": [
+          {
+            "at_seconds": 0.0,
+            "proposal": {
+              "action": "CLEAR",
+              "level": "CLEAR",
+              "reason_code": "PATH_CLEAR",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.0,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.2,
+            "proposal": {
+              "action": "CLEAR",
+              "level": "CLEAR",
+              "reason_code": "PATH_CLEAR",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.0,
+              "critical_track_ids": []
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "action": "CLEAR",
+          "level": "CLEAR",
+          "reason_code": "PATH_CLEAR",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CLEAR",
+          "level": "CLEAR",
+          "reason_code": "PATH_CLEAR",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": false
+        }
+      ]
+    },
+    {
+      "name": "critical_then_recovery_sequence",
+      "input": {
+        "steps": [
+          {
+            "at_seconds": 0.0,
+            "proposal": {
+              "action": "STOP",
+              "level": "CRITICAL",
+              "reason_code": "APPROACHING_VEHICLE_CENTRE",
+              "preferred_corridor": "NONE",
+              "evidence_score": 0.95,
+              "critical_track_ids": [
+                3
+              ]
+            }
+          },
+          {
+            "at_seconds": 0.3,
+            "proposal": {
+              "action": "CLEAR",
+              "level": "CLEAR",
+              "reason_code": "LOW_RISK_MONITORED",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.1,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.6,
+            "proposal": {
+              "action": "CLEAR",
+              "level": "CLEAR",
+              "reason_code": "LOW_RISK_MONITORED",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.1,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 0.9,
+            "proposal": {
+              "action": "CLEAR",
+              "level": "CLEAR",
+              "reason_code": "LOW_RISK_MONITORED",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.1,
+              "critical_track_ids": []
+            }
+          },
+          {
+            "at_seconds": 1.2,
+            "proposal": {
+              "action": "CLEAR",
+              "level": "CLEAR",
+              "reason_code": "LOW_RISK_MONITORED",
+              "preferred_corridor": "CENTRE",
+              "evidence_score": 0.1,
+              "critical_track_ids": []
+            }
+          }
+        ]
+      },
+      "expected": [
+        {
+          "action": "STOP",
+          "level": "CRITICAL",
+          "reason_code": "APPROACHING_VEHICLE_CENTRE",
+          "preferred_corridor": "NONE",
+          "critical_track_ids": [
+            3
+          ],
+          "speak": true
+        },
+        {
+          "action": "CAUTION",
+          "level": "WATCH",
+          "reason_code": "RISK_DECAY_PENDING",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CAUTION",
+          "level": "WATCH",
+          "reason_code": "RISK_DECAY_PENDING",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CLEAR",
+          "level": "CLEAR",
+          "reason_code": "LOW_RISK_MONITORED",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": false
+        },
+        {
+          "action": "CLEAR",
+          "level": "CLEAR",
+          "reason_code": "LOW_RISK_MONITORED",
+          "preferred_corridor": "CENTRE",
+          "critical_track_ids": [],
+          "speak": false
+        }
+      ]
+    }
+  ]
+}

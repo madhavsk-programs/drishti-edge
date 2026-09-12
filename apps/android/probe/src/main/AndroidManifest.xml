@@ -7,6 +7,14 @@
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light">
 
+        <!-- QNN's HTP backend talks to the DSP over FastRPC via these vendor
+             libraries. Android's linker namespace sandboxing blocks dlopen of
+             vendor libs an app hasn't declared, which can surface as a generic
+             QNN_DEVICE_ERROR_INVALID_CONFIG rather than a linker error. -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+        <uses-native-library android:name="libadsprpc.so" android:required="false" />
+        <uses-native-library android:name="libsdsprpc.so" android:required="false" />
+
         <activity
             android:name=".ProbeActivity"
             android:exported="true"

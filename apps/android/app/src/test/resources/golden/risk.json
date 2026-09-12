@@ -1,0 +1,1163 @@
+{
+  "cases": [
+    {
+      "name": "low_risk_person_far",
+      "kind": "score_tracks",
+      "input": {
+        "assessment": {
+          "label": "person",
+          "confidence": 0.8,
+          "path_overlap": 0.1,
+          "proximity_score": 0.2,
+          "proximity_band": "FAR",
+          "direction": "LEFT",
+          "approach_rate": null,
+          "area_change": null,
+          "track_id": 1
+        },
+        "risk_sensitivity": 0.5
+      },
+      "expected": {
+        "score": 0.24250000000000002,
+        "level": "CLEAR",
+        "class_severity": 0.55,
+        "approach_state": "UNKNOWN"
+      }
+    },
+    {
+      "name": "chair_centre_near",
+      "kind": "score_tracks",
+      "input": {
+        "assessment": {
+          "label": "chair",
+          "confidence": 0.9,
+          "path_overlap": 0.8,
+          "proximity_score": 0.7,
+          "proximity_band": "NEAR",
+          "direction": "CENTRE",
+          "approach_rate": 0.1,
+          "area_change": 0.1,
+          "track_id": 2
+        },
+        "risk_sensitivity": 0.5
+      },
+      "expected": {
+        "score": 0.6375,
+        "level": "WATCH",
+        "class_severity": 0.75,
+        "approach_state": "APPROACHING"
+      }
+    },
+    {
+      "name": "car_approaching_high",
+      "kind": "score_tracks",
+      "input": {
+        "assessment": {
+          "label": "car",
+          "confidence": 0.95,
+          "path_overlap": 0.9,
+          "proximity_score": 0.85,
+          "proximity_band": "IMMEDIATE",
+          "direction": "CENTRE",
+          "approach_rate": 0.3,
+          "area_change": 0.3,
+          "track_id": 3
+        },
+        "risk_sensitivity": 0.5
+      },
+      "expected": {
+        "score": 0.7799999999999999,
+        "level": "WARN",
+        "class_severity": 0.95,
+        "approach_state": "APPROACHING"
+      }
+    },
+    {
+      "name": "sensitivity_zero_damps",
+      "kind": "score_tracks",
+      "input": {
+        "assessment": {
+          "label": "car",
+          "confidence": 0.95,
+          "path_overlap": 0.9,
+          "proximity_score": 0.85,
+          "proximity_band": "IMMEDIATE",
+          "direction": "CENTRE",
+          "approach_rate": 0.3,
+          "area_change": 0.3,
+          "track_id": 3
+        },
+        "risk_sensitivity": 0.0
+      },
+      "expected": {
+        "score": 0.585,
+        "level": "WATCH",
+        "class_severity": 0.95,
+        "approach_state": "APPROACHING"
+      }
+    },
+    {
+      "name": "sensitivity_one_amplifies",
+      "kind": "score_tracks",
+      "input": {
+        "assessment": {
+          "label": "chair",
+          "confidence": 0.9,
+          "path_overlap": 0.8,
+          "proximity_score": 0.7,
+          "proximity_band": "NEAR",
+          "direction": "CENTRE",
+          "approach_rate": 0.1,
+          "area_change": 0.1,
+          "track_id": 2
+        },
+        "risk_sensitivity": 1.0
+      },
+      "expected": {
+        "score": 0.796875,
+        "level": "WARN",
+        "class_severity": 0.75,
+        "approach_state": "APPROACHING"
+      }
+    },
+    {
+      "name": "unknown_label_default_severity",
+      "kind": "score_tracks",
+      "input": {
+        "assessment": {
+          "label": "kite",
+          "confidence": 0.9,
+          "path_overlap": 0.5,
+          "proximity_score": 0.5,
+          "proximity_band": "MEDIUM",
+          "direction": "CENTRE",
+          "approach_rate": 0.0,
+          "area_change": 0.0,
+          "track_id": 5
+        },
+        "risk_sensitivity": 0.5
+      },
+      "expected": {
+        "score": 0.44000000000000006,
+        "level": "WATCH",
+        "class_severity": 0.5,
+        "approach_state": "STATIONARY"
+      }
+    },
+    {
+      "name": "approach_state_unknown_when_no_history",
+      "kind": "score_tracks",
+      "input": {
+        "assessment": {
+          "label": "person",
+          "confidence": 0.7,
+          "path_overlap": 0.4,
+          "proximity_score": 0.4,
+          "proximity_band": "MEDIUM",
+          "direction": "CENTRE",
+          "approach_rate": null,
+          "area_change": null,
+          "track_id": 6
+        },
+        "risk_sensitivity": 0.5
+      },
+      "expected": {
+        "score": 0.3725,
+        "level": "WATCH",
+        "class_severity": 0.55,
+        "approach_state": "UNKNOWN"
+      }
+    },
+    {
+      "name": "approach_state_receding",
+      "kind": "score_tracks",
+      "input": {
+        "assessment": {
+          "label": "person",
+          "confidence": 0.7,
+          "path_overlap": 0.4,
+          "proximity_score": 0.4,
+          "proximity_band": "MEDIUM",
+          "direction": "CENTRE",
+          "approach_rate": 0.0,
+          "area_change": -0.2,
+          "track_id": 7
+        },
+        "risk_sensitivity": 0.5
+      },
+      "expected": {
+        "score": 0.3725,
+        "level": "WATCH",
+        "class_severity": 0.55,
+        "approach_state": "RECEDING"
+      }
+    },
+    {
+      "name": "path_clear_no_detections",
+      "kind": "select_action",
+      "input": {
+        "assessments": [],
+        "corridor": {
+          "left_cost": 0.0,
+          "centre_cost": 0.0,
+          "right_cost": 0.0,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "CLEAR",
+        "level": "CLEAR",
+        "reason_code": "PATH_CLEAR",
+        "preferred_corridor": "CENTRE",
+        "evidence_score": 0.0,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "low_risk_monitored",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "person",
+            "confidence": 0.8,
+            "path_overlap": 0.1,
+            "proximity_score": 0.2,
+            "proximity_band": "FAR",
+            "direction": "LEFT",
+            "approach_rate": null,
+            "area_change": null,
+            "track_id": 1
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.05,
+          "centre_cost": 0.05,
+          "right_cost": 0.05,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "CLEAR",
+        "level": "CLEAR",
+        "reason_code": "LOW_RISK_MONITORED",
+        "preferred_corridor": "CENTRE",
+        "evidence_score": 0.24250000000000002,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "critical_approaching_vehicle_centre",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "car",
+            "confidence": 0.95,
+            "path_overlap": 0.9,
+            "proximity_score": 0.85,
+            "proximity_band": "IMMEDIATE",
+            "direction": "CENTRE",
+            "approach_rate": 0.3,
+            "area_change": 0.3,
+            "track_id": 3
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.1,
+          "centre_cost": 0.9,
+          "right_cost": 0.1,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "STOP",
+        "level": "CRITICAL",
+        "reason_code": "APPROACHING_VEHICLE_CENTRE",
+        "preferred_corridor": "NONE",
+        "evidence_score": 0.7799999999999999,
+        "critical_track_ids": [
+          3
+        ]
+      }
+    },
+    {
+      "name": "wall_dead_end_stops",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "person",
+            "confidence": 0.8,
+            "path_overlap": 0.1,
+            "proximity_score": 0.2,
+            "proximity_band": "FAR",
+            "direction": "LEFT",
+            "approach_rate": null,
+            "area_change": null,
+            "track_id": 1
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.1,
+          "centre_cost": 0.1,
+          "right_cost": 0.1,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.1,
+            0.6,
+            0.1
+          ],
+          "floor_extents": [
+            0.1,
+            0.05,
+            0.1
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": true
+        }
+      },
+      "expected": {
+        "action": "STOP",
+        "level": "HIGH",
+        "reason_code": "WALL_OR_DEAD_END_AHEAD",
+        "preferred_corridor": "NONE",
+        "evidence_score": 0.95,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "stairs_centre_stops",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "person",
+            "confidence": 0.8,
+            "path_overlap": 0.1,
+            "proximity_score": 0.2,
+            "proximity_band": "FAR",
+            "direction": "LEFT",
+            "approach_rate": null,
+            "area_change": null,
+            "track_id": 1
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.1,
+          "centre_cost": 0.1,
+          "right_cost": 0.1,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.2,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "STOP",
+        "level": "HIGH",
+        "reason_code": "STAIRS_OR_LEVEL_CHANGE_AHEAD",
+        "preferred_corridor": "NONE",
+        "evidence_score": 0.2,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "all_corridors_blocked_high",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "chair",
+            "confidence": 0.9,
+            "path_overlap": 0.8,
+            "proximity_score": 0.7,
+            "proximity_band": "NEAR",
+            "direction": "CENTRE",
+            "approach_rate": 0.1,
+            "area_change": 0.1,
+            "track_id": 2
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.9,
+          "centre_cost": 0.9,
+          "right_cost": 0.9,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "STOP",
+        "level": "HIGH",
+        "reason_code": "ALL_CORRIDORS_BLOCKED",
+        "preferred_corridor": "NONE",
+        "evidence_score": 0.6375,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "all_corridors_blocked_critical_when_immediate",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "person",
+            "confidence": 0.9,
+            "path_overlap": 0.9,
+            "proximity_score": 0.9,
+            "proximity_band": "IMMEDIATE",
+            "direction": "CENTRE",
+            "approach_rate": 0.02,
+            "area_change": 0.02,
+            "track_id": 4
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.9,
+          "centre_cost": 0.9,
+          "right_cost": 0.9,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "STOP",
+        "level": "CRITICAL",
+        "reason_code": "ALL_CORRIDORS_BLOCKED",
+        "preferred_corridor": "NONE",
+        "evidence_score": 0.6715,
+        "critical_track_ids": [
+          4
+        ]
+      }
+    },
+    {
+      "name": "centre_blocked_move_left",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "chair",
+            "confidence": 0.9,
+            "path_overlap": 0.8,
+            "proximity_score": 0.7,
+            "proximity_band": "NEAR",
+            "direction": "CENTRE",
+            "approach_rate": 0.1,
+            "area_change": 0.1,
+            "track_id": 2
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.05,
+          "centre_cost": 0.9,
+          "right_cost": 0.35,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "MOVE_LEFT",
+        "level": "HIGH",
+        "reason_code": "CENTRE_BLOCKED_CLEARER_SIDE",
+        "preferred_corridor": "LEFT",
+        "evidence_score": 0.6375,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "centre_blocked_move_right",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "chair",
+            "confidence": 0.9,
+            "path_overlap": 0.8,
+            "proximity_score": 0.7,
+            "proximity_band": "NEAR",
+            "direction": "CENTRE",
+            "approach_rate": 0.1,
+            "area_change": 0.1,
+            "track_id": 2
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.35,
+          "centre_cost": 0.9,
+          "right_cost": 0.05,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "MOVE_RIGHT",
+        "level": "HIGH",
+        "reason_code": "CENTRE_BLOCKED_CLEARER_SIDE",
+        "preferred_corridor": "RIGHT",
+        "evidence_score": 0.6375,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "centre_blocked_neither_side_defensible_pause",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "chair",
+            "confidence": 0.9,
+            "path_overlap": 0.8,
+            "proximity_score": 0.7,
+            "proximity_band": "NEAR",
+            "direction": "CENTRE",
+            "approach_rate": 0.1,
+            "area_change": 0.1,
+            "track_id": 2
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.3,
+          "centre_cost": 0.9,
+          "right_cost": 0.3,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "PAUSE_UNCLEAR",
+        "level": "WARN",
+        "reason_code": "CENTRE_BLOCKED_DIRECTION_UNCLEAR",
+        "preferred_corridor": "NONE",
+        "evidence_score": 0.6375,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "centre_blocked_side_not_walkable_pause",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "chair",
+            "confidence": 0.9,
+            "path_overlap": 0.8,
+            "proximity_score": 0.7,
+            "proximity_band": "NEAR",
+            "direction": "CENTRE",
+            "approach_rate": 0.1,
+            "area_change": 0.1,
+            "track_id": 2
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.05,
+          "centre_cost": 0.9,
+          "right_cost": 0.35,
+          "walkable_choices": [
+            "CENTRE",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "PAUSE_UNCLEAR",
+        "level": "WARN",
+        "reason_code": "CENTRE_BLOCKED_DIRECTION_UNCLEAR",
+        "preferred_corridor": "NONE",
+        "evidence_score": 0.6375,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "centre_blocked_side_uncertain_pause",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "chair",
+            "confidence": 0.9,
+            "path_overlap": 0.8,
+            "proximity_score": 0.7,
+            "proximity_band": "NEAR",
+            "direction": "CENTRE",
+            "approach_rate": 0.1,
+            "area_change": 0.1,
+            "track_id": 2
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.05,
+          "centre_cost": 0.9,
+          "right_cost": 0.35,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [
+            "LEFT"
+          ],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "PAUSE_UNCLEAR",
+        "level": "WARN",
+        "reason_code": "CENTRE_BLOCKED_DIRECTION_UNCLEAR",
+        "preferred_corridor": "NONE",
+        "evidence_score": 0.6375,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "centre_blocked_side_floor_too_short_pause",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "chair",
+            "confidence": 0.9,
+            "path_overlap": 0.8,
+            "proximity_score": 0.7,
+            "proximity_band": "NEAR",
+            "direction": "CENTRE",
+            "approach_rate": 0.1,
+            "area_change": 0.1,
+            "track_id": 2
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.05,
+          "centre_cost": 0.9,
+          "right_cost": 0.35,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            0.2,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "PAUSE_UNCLEAR",
+        "level": "WARN",
+        "reason_code": "CENTRE_BLOCKED_DIRECTION_UNCLEAR",
+        "preferred_corridor": "NONE",
+        "evidence_score": 0.6375,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "centre_blocked_side_wall_ratio_pause",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "chair",
+            "confidence": 0.9,
+            "path_overlap": 0.8,
+            "proximity_score": 0.7,
+            "proximity_band": "NEAR",
+            "direction": "CENTRE",
+            "approach_rate": 0.1,
+            "area_change": 0.1,
+            "track_id": 2
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.05,
+          "centre_cost": 0.9,
+          "right_cost": 0.35,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.5,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "PAUSE_UNCLEAR",
+        "level": "WARN",
+        "reason_code": "CENTRE_BLOCKED_DIRECTION_UNCLEAR",
+        "preferred_corridor": "NONE",
+        "evidence_score": 0.6375,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "centre_surface_uncertain_pause",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "person",
+            "confidence": 0.8,
+            "path_overlap": 0.1,
+            "proximity_score": 0.2,
+            "proximity_band": "FAR",
+            "direction": "LEFT",
+            "approach_rate": null,
+            "area_change": null,
+            "track_id": 1
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.05,
+          "centre_cost": 0.05,
+          "right_cost": 0.05,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [
+            "CENTRE"
+          ],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "PAUSE_UNCLEAR",
+        "level": "WARN",
+        "reason_code": "CENTRE_SURFACE_UNCERTAIN",
+        "preferred_corridor": "NONE",
+        "evidence_score": 0.24250000000000002,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "watch_band_below_warn_stays_clear",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "chair",
+            "confidence": 0.9,
+            "path_overlap": 0.8,
+            "proximity_score": 0.7,
+            "proximity_band": "NEAR",
+            "direction": "CENTRE",
+            "approach_rate": 0.1,
+            "area_change": 0.1,
+            "track_id": 2
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.05,
+          "centre_cost": 0.05,
+          "right_cost": 0.05,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "CLEAR",
+        "level": "WATCH",
+        "reason_code": "LOW_RISK_MONITORED",
+        "preferred_corridor": "CENTRE",
+        "evidence_score": 0.6375,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "obstacle_nearby_caution",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "bicycle",
+            "confidence": 0.95,
+            "path_overlap": 0.95,
+            "proximity_score": 0.85,
+            "proximity_band": "NEAR",
+            "direction": "LEFT",
+            "approach_rate": 0.5,
+            "area_change": 0.5,
+            "track_id": 8
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.05,
+          "centre_cost": 0.05,
+          "right_cost": 0.05,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "CAUTION",
+        "level": "WARN",
+        "reason_code": "OBSTACLE_NEARBY",
+        "preferred_corridor": "CENTRE",
+        "evidence_score": 0.8124999999999999,
+        "critical_track_ids": []
+      }
+    },
+    {
+      "name": "centre_object_below_overlap_gate_not_blocking",
+      "kind": "select_action",
+      "input": {
+        "assessments": [
+          {
+            "label": "person",
+            "confidence": 0.9,
+            "path_overlap": 0.1,
+            "proximity_score": 0.9,
+            "proximity_band": "IMMEDIATE",
+            "direction": "CENTRE",
+            "approach_rate": 0.5,
+            "area_change": 0.5,
+            "track_id": 9
+          }
+        ],
+        "corridor": {
+          "left_cost": 0.05,
+          "centre_cost": 0.05,
+          "right_cost": 0.05,
+          "walkable_choices": [
+            "CENTRE",
+            "LEFT",
+            "RIGHT"
+          ],
+          "uncertain_choices": [],
+          "wall_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "floor_extents": [
+            1.0,
+            1.0,
+            1.0
+          ],
+          "stairs_ratios": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "wall_dead_end": false
+        }
+      },
+      "expected": {
+        "action": "CLEAR",
+        "level": "WATCH",
+        "reason_code": "LOW_RISK_MONITORED",
+        "preferred_corridor": "CENTRE",
+        "evidence_score": 0.5275,
+        "critical_track_ids": []
+      }
+    }
+  ]
+}

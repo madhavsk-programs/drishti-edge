@@ -1,0 +1,498 @@
+{
+  "cases": [
+    {
+      "name": "plain_person",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "person",
+            "confidence": 0.9,
+            "x1": 64,
+            "y1": 48,
+            "x2": 320,
+            "y2": 480
+          }
+        ]
+      },
+      "expected": [
+        {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.1,
+          "y1": 0.1,
+          "x2": 0.5,
+          "y2": 1.0
+        }
+      ]
+    },
+    {
+      "name": "alias_backpack_to_bag",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "backpack",
+            "confidence": 0.8,
+            "x1": 10,
+            "y1": 10,
+            "x2": 200,
+            "y2": 300
+          }
+        ]
+      },
+      "expected": [
+        {
+          "label": "bag",
+          "confidence": 0.8,
+          "x1": 0.015625,
+          "y1": 0.020833333333333332,
+          "x2": 0.3125,
+          "y2": 0.625
+        }
+      ]
+    },
+    {
+      "name": "alias_handbag_to_bag",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "handbag",
+            "confidence": 0.8,
+            "x1": 10,
+            "y1": 10,
+            "x2": 200,
+            "y2": 300
+          }
+        ]
+      },
+      "expected": [
+        {
+          "label": "bag",
+          "confidence": 0.8,
+          "x1": 0.015625,
+          "y1": 0.020833333333333332,
+          "x2": 0.3125,
+          "y2": 0.625
+        }
+      ]
+    },
+    {
+      "name": "alias_dining_table_to_desk",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "dining table",
+            "confidence": 0.7,
+            "x1": 0,
+            "y1": 0,
+            "x2": 640,
+            "y2": 480
+          }
+        ]
+      },
+      "expected": [
+        {
+          "label": "desk",
+          "confidence": 0.7,
+          "x1": 0.0,
+          "y1": 0.0,
+          "x2": 1.0,
+          "y2": 1.0
+        }
+      ]
+    },
+    {
+      "name": "alias_table_to_desk",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "table",
+            "confidence": 0.7,
+            "x1": 0,
+            "y1": 0,
+            "x2": 640,
+            "y2": 480
+          }
+        ]
+      },
+      "expected": [
+        {
+          "label": "desk",
+          "confidence": 0.7,
+          "x1": 0.0,
+          "y1": 0.0,
+          "x2": 1.0,
+          "y2": 1.0
+        }
+      ]
+    },
+    {
+      "name": "allowlist_rejects_unlisted",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "kite",
+            "confidence": 0.99,
+            "x1": 10,
+            "y1": 10,
+            "x2": 100,
+            "y2": 100
+          },
+          {
+            "label": "chair",
+            "confidence": 0.9,
+            "x1": 10,
+            "y1": 10,
+            "x2": 100,
+            "y2": 100
+          }
+        ]
+      },
+      "expected": [
+        {
+          "label": "chair",
+          "confidence": 0.9,
+          "x1": 0.015625,
+          "y1": 0.020833333333333332,
+          "x2": 0.15625,
+          "y2": 0.20833333333333334
+        }
+      ]
+    },
+    {
+      "name": "full_view_keeps_everything_unaliased",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "ALL",
+        "apply_aliases": false,
+        "detections": [
+          {
+            "label": "kite",
+            "confidence": 0.99,
+            "x1": 10,
+            "y1": 10,
+            "x2": 100,
+            "y2": 100
+          },
+          {
+            "label": "backpack",
+            "confidence": 0.8,
+            "x1": 10,
+            "y1": 10,
+            "x2": 200,
+            "y2": 300
+          },
+          {
+            "label": "dining table",
+            "confidence": 0.7,
+            "x1": 0,
+            "y1": 0,
+            "x2": 640,
+            "y2": 480
+          }
+        ]
+      },
+      "expected": [
+        {
+          "label": "kite",
+          "confidence": 0.99,
+          "x1": 0.015625,
+          "y1": 0.020833333333333332,
+          "x2": 0.15625,
+          "y2": 0.20833333333333334
+        },
+        {
+          "label": "backpack",
+          "confidence": 0.8,
+          "x1": 0.015625,
+          "y1": 0.020833333333333332,
+          "x2": 0.3125,
+          "y2": 0.625
+        },
+        {
+          "label": "dining table",
+          "confidence": 0.7,
+          "x1": 0.0,
+          "y1": 0.0,
+          "x2": 1.0,
+          "y2": 1.0
+        }
+      ]
+    },
+    {
+      "name": "sub_threshold_rejected",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.5,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "person",
+            "confidence": 0.1,
+            "x1": 10,
+            "y1": 10,
+            "x2": 100,
+            "y2": 100
+          },
+          {
+            "label": "person",
+            "confidence": 0.95,
+            "x1": 10,
+            "y1": 10,
+            "x2": 100,
+            "y2": 100
+          }
+        ]
+      },
+      "expected": [
+        {
+          "label": "person",
+          "confidence": 0.95,
+          "x1": 0.015625,
+          "y1": 0.020833333333333332,
+          "x2": 0.15625,
+          "y2": 0.20833333333333334
+        }
+      ]
+    },
+    {
+      "name": "degenerate_box_zero_width_rejected",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "person",
+            "confidence": 0.9,
+            "x1": 100,
+            "y1": 10,
+            "x2": 100,
+            "y2": 200
+          }
+        ]
+      },
+      "expected": []
+    },
+    {
+      "name": "degenerate_box_inverted_rejected",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "person",
+            "confidence": 0.9,
+            "x1": 300,
+            "y1": 200,
+            "x2": 100,
+            "y2": 10
+          }
+        ]
+      },
+      "expected": []
+    },
+    {
+      "name": "clamping_out_of_frame",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "person",
+            "confidence": 0.9,
+            "x1": -100,
+            "y1": -50,
+            "x2": 900,
+            "y2": 700
+          }
+        ]
+      },
+      "expected": [
+        {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.0,
+          "y1": 0.0,
+          "x2": 1.0,
+          "y2": 1.0
+        }
+      ]
+    },
+    {
+      "name": "uppercase_label_lowered",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "PERSON",
+            "confidence": 0.9,
+            "x1": 10,
+            "y1": 10,
+            "x2": 100,
+            "y2": 100
+          }
+        ]
+      },
+      "expected": [
+        {
+          "label": "person",
+          "confidence": 0.9,
+          "x1": 0.015625,
+          "y1": 0.020833333333333332,
+          "x2": 0.15625,
+          "y2": 0.20833333333333334
+        }
+      ]
+    },
+    {
+      "name": "empty_input",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": []
+      },
+      "expected": []
+    },
+    {
+      "name": "mixed_batch_order_preserved",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.5,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "car",
+            "confidence": 0.85,
+            "x1": 400,
+            "y1": 200,
+            "x2": 600,
+            "y2": 400
+          },
+          {
+            "label": "kite",
+            "confidence": 0.99,
+            "x1": 10,
+            "y1": 10,
+            "x2": 100,
+            "y2": 100
+          },
+          {
+            "label": "chair",
+            "confidence": 0.6,
+            "x1": 50,
+            "y1": 100,
+            "x2": 150,
+            "y2": 300
+          },
+          {
+            "label": "person",
+            "confidence": 0.3,
+            "x1": 200,
+            "y1": 100,
+            "x2": 260,
+            "y2": 400
+          }
+        ]
+      },
+      "expected": [
+        {
+          "label": "car",
+          "confidence": 0.85,
+          "x1": 0.625,
+          "y1": 0.4166666666666667,
+          "x2": 0.9375,
+          "y2": 0.8333333333333334
+        },
+        {
+          "label": "chair",
+          "confidence": 0.6,
+          "x1": 0.078125,
+          "y1": 0.20833333333333334,
+          "x2": 0.234375,
+          "y2": 0.625
+        }
+      ]
+    },
+    {
+      "name": "door_is_canonical_though_not_coco",
+      "input": {
+        "width": 640,
+        "height": 480,
+        "confidence_threshold": 0.35,
+        "allowed_labels": "CANONICAL",
+        "apply_aliases": true,
+        "detections": [
+          {
+            "label": "door",
+            "confidence": 0.9,
+            "x1": 100,
+            "y1": 50,
+            "x2": 300,
+            "y2": 470
+          }
+        ]
+      },
+      "expected": [
+        {
+          "label": "door",
+          "confidence": 0.9,
+          "x1": 0.15625,
+          "y1": 0.10416666666666667,
+          "x2": 0.46875,
+          "y2": 0.9791666666666666
+        }
+      ]
+    }
+  ]
+}
