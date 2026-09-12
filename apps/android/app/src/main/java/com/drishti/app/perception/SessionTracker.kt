@@ -17,6 +17,12 @@ data class TrackedDetection(
     val areaChange: Double?,
     val motionDx: Double?,
     val motionDy: Double?,
+    /**
+     * 0 when the detector produced this box on this frame; >0 when the track is
+     * COASTING on its last observation because the detector missed it. Carried
+     * so downstream can tell a measurement from a memory.
+     */
+    val framesSinceSeen: Int = 0,
 )
 
 private data class Track(
@@ -25,13 +31,37 @@ private data class Track(
     var detection: DetectionCandidate,
     val firstSeenMillis: Long,
     var lastSeenMillis: Long,
+    /** Last frame this track was reported on, whether observed or coasted. */
     var lastFrameId: Int,
+    /** Last frame the DETECTOR actually produced a box for it. */
+    var lastSeenFrameId: Int = lastFrameId,
 )
 
 class SessionTracker(
     private val iouThreshold: Double,
     private val centreDistanceThreshold: Double,
     private val maxAgeFrames: Int,
+    /**
+     * How many frames an unmatched track keeps REPORTING its last box.
+     *
+     * `0` is the Python behaviour and what the `tracking.json` vectors pin: a
+     * track survived in the table for [maxAgeFrames] so it could keep its id,
+     * but it produced no output on a frame where the detector missed it, so the
+     * obstacle simply vanished from the risk engine.
+     *
+     * That is a safety defect, and it is the mechanism behind "it sees the desk
+     * sometimes". Measured over five consecutive Walk Mode frames of one static
+     * desk, YOLO11n emitted `dining table` on ONE of them (0.37, just over the
+     * gate) and nothing on the other four. The verdict flickered between STOP
+     * and CLEAR, and because the alert state machine needs two consecutive
+     * frames to commit, the STOP never even reached the user.
+     *
+     * An obstacle seen 150 ms ago has not stopped existing because a confidence
+     * dipped. Coasting reports the last known box with a decaying confidence, so
+     * it fades out over [coastFrames] instead of blinking out — and a decaying
+     * confidence directly decays the corridor cost it contributes.
+     */
+    private val coastFrames: Int = 0,
 ) {
     private val tracks = LinkedHashMap<Int, Track>()
     private var nextTrackId = 1
@@ -41,7 +71,7 @@ class SessionTracker(
         frameId: Int,
         capturedAtMillis: Long,
     ): List<TrackedDetection> {
-        val expired = tracks.filterValues { frameId - it.lastFrameId > maxAgeFrames }.keys
+        val expired = tracks.filterValues { frameId - it.lastSeenFrameId > maxAgeFrames }.keys
         expired.forEach { tracks.remove(it) }
 
         val available = LinkedHashSet(tracks.keys)
@@ -57,6 +87,7 @@ class SessionTracker(
                     firstSeenMillis = capturedAtMillis,
                     lastSeenMillis = capturedAtMillis,
                     lastFrameId = frameId,
+                    lastSeenFrameId = frameId,
                 )
                 nextTrackId += 1
                 tracks[created.trackId] = created
@@ -92,6 +123,31 @@ class SessionTracker(
             )
             track.detection = detection
             track.lastSeenMillis = capturedAtMillis
+            track.lastFrameId = frameId
+            track.lastSeenFrameId = frameId
+        }
+
+        for (trackId in available) {
+            val track = tracks[trackId] ?: continue
+            val age = frameId - track.lastSeenFrameId
+            if (age !in 1..coastFrames) continue
+            val decay = 1.0 - age.toDouble() / (coastFrames + 1)
+            output.add(
+                TrackedDetection(
+                    detection = track.detection.copy(
+                        confidence = track.detection.confidence * decay,
+                    ),
+                    trackId = track.trackId,
+                    // Motion needs two OBSERVATIONS. Coasting has one and a
+                    // guess; reporting a rate here would be inventing evidence,
+                    // and `APPROACHING_VEHICLE_CENTRE` reads exactly that field.
+                    approachRate = null,
+                    areaChange = null,
+                    motionDx = null,
+                    motionDy = null,
+                    framesSinceSeen = age,
+                )
+            )
             track.lastFrameId = frameId
         }
         return output

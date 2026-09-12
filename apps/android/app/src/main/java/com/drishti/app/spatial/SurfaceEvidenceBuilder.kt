@@ -4,8 +4,11 @@ import com.drishti.app.config.PipelineSettings
 import com.drishti.app.inference.Letterbox
 import com.drishti.app.inference.SegFormerSegmenter
 import com.drishti.app.net.CorridorChoice
+import com.drishti.app.net.ProximityBand
 import com.drishti.app.net.SurfaceKind
 import com.drishti.app.perception.DetectionCandidate
+import com.drishti.app.perception.SURFACE_WITNESS_LABELS
+import com.drishti.app.perception.SURFACE_WITNESS_MIN_CONFIDENCE
 
 /**
  * Turn a segmentation frame into per-corridor surface evidence
@@ -36,7 +39,7 @@ object SurfaceEvidenceBuilder {
         // so tensor pixels scale straight down to map pixels.
         val scaleX = segmentation.width.toDouble() / letterbox.targetWidth
         val scaleY = segmentation.height.toDouble() / letterbox.targetHeight
-        val occluded = occlusionMask(occluders, segmentation, letterbox, scaleX, scaleY)
+        val occluded = occlusionMask(occluders, segmentation, letterbox, scaleX, scaleY, settings)
 
         val walkable = HashMap<CorridorChoice, Double>()
         val road = HashMap<CorridorChoice, Double>()
@@ -166,6 +169,23 @@ object SurfaceEvidenceBuilder {
     /** Share of the corridor's depth a column must span to be measured. */
     internal const val MIN_COLUMN_SPAN_RATIO = 0.80
 
+    /**
+     * A detection whose BASE proves the plane under it is not a floor.
+     *
+     * Gated on PROXIMITY rather than on the horizon line. A laptop on a desk
+     * across the room is standing on a different surface, with floor in between,
+     * and shadowing everything below it would condemn that floor; the same
+     * laptop at arm's length is standing on the worktop the user is about to
+     * walk into. Where the base falls relative to the horizon turns out to be a
+     * knife-edge — measured at 0.39 against a horizon of 0.38 on one frame and
+     * above it on the next — whereas apparent size and height together are the
+     * calibrated distance signal the rest of the pipeline already trusts.
+     */
+    private fun isSurfaceWitness(box: DetectionCandidate, settings: PipelineSettings): Boolean =
+        box.label in SURFACE_WITNESS_LABELS &&
+            box.confidence >= SURFACE_WITNESS_MIN_CONFIDENCE &&
+            estimateRelativeProximity(box, settings).band != ProximityBand.FAR
+
     /** The segmenter's answer, downgraded where a detection stands in the way. */
     private fun kindAt(
         segmentation: SegFormerSegmenter.SegmentationFrame,
@@ -203,6 +223,7 @@ object SurfaceEvidenceBuilder {
         letterbox: Letterbox,
         scaleX: Double,
         scaleY: Double,
+        settings: PipelineSettings,
     ): BooleanArray? {
         if (occluders.isEmpty()) return null
         val width = segmentation.width
@@ -214,8 +235,14 @@ object SurfaceEvidenceBuilder {
             val x1 = (tx1 * scaleX).toInt().coerceIn(0, width - 1)
             val x2 = (tx2 * scaleX).toInt().coerceIn(0, width - 1)
             val y1 = (ty1 * scaleY).toInt().coerceIn(0, height - 1)
-            val y2 = (ty2 * scaleY).toInt().coerceIn(0, height - 1)
-            for (y in y1..y2) {
+            // A surface witness casts its shadow all the way to the bottom of
+            // the frame: everything nearer than its base, in its own columns, is
+            // the worktop it is standing on. Its own x-range only — the desk
+            // certainly extends further, but by how far is not measured.
+            val bottom = if (isSurfaceWitness(box, settings)) height - 1 else {
+                (ty2 * scaleY).toInt().coerceIn(0, height - 1)
+            }
+            for (y in y1..bottom) {
                 val row = y * width
                 for (x in x1..x2) mask[row + x] = true
             }

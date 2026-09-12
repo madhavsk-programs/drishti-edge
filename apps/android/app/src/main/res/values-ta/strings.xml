@@ -171,4 +171,16 @@
     <string name="obstacle_sink">ஒரு தொட்டி</string>
     <string name="obstacle_toilet">ஒரு கழிப்பறை</string>
     <string name="reason_checking">முன்னால் என்ன உள்ளது எனப் பார்க்கிறது</string>
+    <string name="obstacle_laptop">ஒரு மடிக்கணினி</string>
+    <string name="obstacle_bottle">ஒரு பாட்டில்</string>
+    <string name="obstacle_cup">ஒரு கோப்பை</string>
+    <string name="obstacle_bowl">ஒரு கிண்ணம்</string>
+    <string name="obstacle_vase">ஒரு பூஜாடி</string>
+    <string name="obstacle_book">ஒரு புத்தகம்</string>
+    <string name="obstacle_keyboard">ஒரு விசைப்பலகை</string>
+    <string name="obstacle_skateboard">ஒரு சறுக்கு பலகை</string>
+    <string name="obstacle_sports_ball">ஒரு பந்து</string>
+    <string name="obstacle_microwave">ஒரு மைக்ரோவேவ்</string>
+    <string name="obstacle_oven">ஒரு அடுப்பு</string>
+    <string name="obstacle_toaster">ஒரு டோஸ்டர்</string>
 </resources>

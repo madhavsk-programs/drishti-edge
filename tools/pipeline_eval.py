@@ -89,6 +89,9 @@ CLASS_SEVERITIES = {
     "traffic light": 0.70, "bench": 0.65, "door": 0.80, "suitcase": 0.65,
     "umbrella": 0.55, "potted plant": 0.70, "couch": 0.75, "bed": 0.80,
     "tv": 0.45, "refrigerator": 0.85, "sink": 0.65, "toilet": 0.75,
+    "laptop": 0.45, "bottle": 0.35, "cup": 0.30, "bowl": 0.30, "vase": 0.45,
+    "book": 0.25, "keyboard": 0.25, "skateboard": 0.55, "sports ball": 0.35,
+    "microwave": 0.60, "oven": 0.70, "toaster": 0.45,
 }
 CANONICAL_LABELS = set(CLASS_SEVERITIES)
 LABEL_ALIASES = {
@@ -478,7 +481,11 @@ def floor_extent(mask: np.ndarray, kind: np.ndarray, min_span_ratio: float) -> f
     return (extents[m - 1] + extents[m]) / 2 if len(extents) % 2 == 0 else extents[m]
 
 
-def occlusion_mask(occluders, kind, lb: Letterbox, sx, sy):
+SURFACE_WITNESS_LABELS = {"laptop", "keyboard", "microwave", "oven", "toaster"}
+SURFACE_WITNESS_MIN_CONFIDENCE = 0.50
+
+
+def occlusion_mask(occluders, kind, lb: Letterbox, sx, sy, s: Settings):
     """Pixels under a risk-view detection: SurfaceEvidenceBuilder.occlusionMask."""
     if not occluders:
         return None
@@ -489,7 +496,11 @@ def occlusion_mask(occluders, kind, lb: Letterbox, sx, sy):
         tx2, ty2 = lb.from_oriented(d.x2, d.y2)
         x1 = int(np.clip(tx1 * sx, 0, w - 1)); x2 = int(np.clip(tx2 * sx, 0, w - 1))
         y1 = int(np.clip(ty1 * sy, 0, h - 1)); y2 = int(np.clip(ty2 * sy, 0, h - 1))
-        mask[y1:y2 + 1, x1:x2 + 1] = True
+        witness = (d.label in SURFACE_WITNESS_LABELS
+                   and d.confidence >= SURFACE_WITNESS_MIN_CONFIDENCE
+                   and relative_proximity(d, s)[1] != "FAR")
+        bottom = h - 1 if witness else y2
+        mask[y1:bottom + 1, x1:x2 + 1] = True
     return mask
 
 
@@ -497,7 +508,7 @@ def surface_evidence(kind, hazard, wall, lb: Letterbox, s: Settings, min_span_ra
                      occluders=None):
     h, w = kind.shape
     sx, sy = w / lb.tw, h / lb.th
-    occluded = occlusion_mask(occluders or [], kind, lb, sx, sy)
+    occluded = occlusion_mask(occluders or [], kind, lb, sx, sy, s)
     if occluded is not None:
         kind = np.where(occluded & (kind == WALKABLE), UNKNOWN, kind)
     ev = {k: {} for k in ("walkable", "road", "non_walkable", "unknown", "wall", "stairs", "floor_extent")}
@@ -646,6 +657,80 @@ def select_action(analysis: Analysis, s: Settings):
 
 
 # ---------------------------------------------------------------------------
+# SessionTracker.kt — only the parts a still-image bench needs: association and
+# COASTING, which is the whole reason this bench has a sequence mode.
+# ---------------------------------------------------------------------------
+
+
+class Tracker:
+    def __init__(self, iou_threshold=0.20, centre_distance=0.12, max_age=3, coast_frames=3):
+        self.iou_threshold = iou_threshold
+        self.centre_distance = centre_distance
+        self.max_age = max_age
+        self.coast_frames = coast_frames
+        self.tracks: dict[int, dict] = {}
+        self.next_id = 1
+
+    @staticmethod
+    def _iou(a: Detection, b: Detection) -> float:
+        w = max(0.0, min(a.x2, b.x2) - max(a.x1, b.x1))
+        h = max(0.0, min(a.y2, b.y2) - max(a.y1, b.y1))
+        inter = w * h
+        union = a.area + b.area - inter
+        return inter / union if union > 0 else 0.0
+
+    @staticmethod
+    def _centre(d: Detection):
+        return ((d.x1 + d.x2) / 2, (d.y1 + d.y2) / 2)
+
+    def _distance(self, a: Detection, b: Detection) -> float:
+        ca, cb = self._centre(a), self._centre(b)
+        return math.hypot(ca[0] - cb[0], ca[1] - cb[1])
+
+    def update(self, detections: list[Detection], frame_id: int):
+        for tid in [t for t, v in self.tracks.items()
+                    if frame_id - v["last_seen"] > self.max_age]:
+            del self.tracks[tid]
+
+        available = set(self.tracks)
+        out: list[tuple[Detection, int, int]] = []
+        for det in detections:
+            best, best_score = None, -1.0
+            for tid in available:
+                tr = self.tracks[tid]
+                if tr["label"] != det.label:
+                    continue
+                overlap = self._iou(tr["det"], det)
+                distance = self._distance(tr["det"], det)
+                if overlap < self.iou_threshold and distance > self.centre_distance:
+                    continue
+                score = overlap + max(0.0, 1 - distance / self.centre_distance) * 0.1
+                if score > best_score:
+                    best, best_score = tid, score
+            if best is None:
+                tid = self.next_id
+                self.next_id += 1
+                self.tracks[tid] = {"label": det.label, "det": det, "last_seen": frame_id}
+            else:
+                available.discard(best)
+                tid = best
+                self.tracks[tid]["det"] = det
+                self.tracks[tid]["last_seen"] = frame_id
+            out.append((det, tid, 0))
+
+        for tid in available:
+            tr = self.tracks[tid]
+            age = frame_id - tr["last_seen"]
+            if not 1 <= age <= self.coast_frames:
+                continue
+            decay = 1.0 - age / (self.coast_frames + 1)
+            faded = Detection(tr["det"].label, tr["det"].confidence * decay,
+                              tr["det"].x1, tr["det"].y1, tr["det"].x2, tr["det"].y2)
+            out.append((faded, tid, age))
+        return out
+
+
+# ---------------------------------------------------------------------------
 # Driver
 # ---------------------------------------------------------------------------
 
@@ -708,10 +793,13 @@ def centre_crop(rgb: np.ndarray, aspect: float | None) -> np.ndarray:
 
 def evaluate(path: Path, detector: Detector, segmenter: Segmenter, labels, s: Settings,
              min_span_ratio: float = MIN_COLUMN_SPAN_RATIO, crop_aspect: float | None = None,
-             fuse: bool = True):
+             fuse: bool = True, tracker=None, frame_id: int = 1):
     rgb = np.asarray(Image.open(path).convert("RGB"), dtype=np.uint8)
     rgb = centre_crop(rgb, crop_aspect)
     risk_view, everything = detector.detect(rgb)
+    if tracker is not None:
+        tracked = tracker.update(risk_view, frame_id)
+        risk_view = [d for d, _tid, _age in tracked]
     class_id, kind, hazard, wall = segmenter.segment(rgb)
     lb = Letterbox(rgb.shape[1], rgb.shape[0], segmenter.w, segmenter.h)
     ev = surface_evidence(kind, hazard, wall, lb, s, min_span_ratio,
@@ -736,6 +824,10 @@ def main() -> int:
                     help="centre-crop to this width/height first (0.75 = the 3:4 analysis frame)")
     ap.add_argument("--no-fuse", action="store_true",
                     help="disable the detection-vetoes-floor fusion")
+    ap.add_argument("--sequence", action="store_true",
+                    help="treat the inputs as consecutive frames and run a tracker over them")
+    ap.add_argument("--coast-frames", type=int, default=0,
+                    help="sequence mode: frames an unmatched track keeps reporting (0 = Python)")
     args = ap.parse_args()
 
     files = sorted(p for p in ([args.target] if args.target.is_file()
@@ -753,11 +845,13 @@ def main() -> int:
           f"{'NHWC' if detector.nhwc else 'NCHW'}, {len(detector.names)} classes")
     print(f"segmenter {args.segmenter.name} {segmenter.w}x{segmenter.h}, {len(labels)} classes\n")
 
+    tracker = Tracker(coast_frames=args.coast_frames) if args.sequence else None
     report = []
-    for path in files:
+    for index, path in enumerate(files):
         rgb, class_id, kind, everything, analysis, decision, ev = evaluate(
             path, detector, segmenter, labels, s,
-            crop_aspect=args.crop_aspect, fuse=not args.no_fuse)
+            crop_aspect=args.crop_aspect, fuse=not args.no_fuse, tracker=tracker,
+            frame_id=index + 1)
         print("=" * 78)
         print(path.name, f"{rgb.shape[1]}x{rgb.shape[0]}")
         print(f"  DECISION   {decision[0]} / {decision[1]} / {decision[2]}")

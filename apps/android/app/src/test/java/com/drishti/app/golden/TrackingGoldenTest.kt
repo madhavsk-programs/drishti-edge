@@ -27,6 +27,9 @@ class TrackingGoldenTest {
                 iouThreshold = overrides.num("track_iou_threshold"),
                 centreDistanceThreshold = overrides.num("track_centre_distance_threshold"),
                 maxAgeFrames = overrides.int("track_max_age_frames"),
+                // Parity mode. Production coasts unmatched tracks for a few
+                // frames; the Python did not, and these vectors pin the Python.
+                coastFrames = 0,
             )
             val frames = case.obj("input").arr("frames").map { it.jsonObject }
             val expectedFrames = case.arr("expected").map { it.jsonArray }

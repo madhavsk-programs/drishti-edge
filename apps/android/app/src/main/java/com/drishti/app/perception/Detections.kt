@@ -42,6 +42,24 @@ val CANONICAL_LABELS: Set<String> = setOf(
     "door",
     "suitcase",
     "umbrella",
+    // Things that sit ON surfaces and on floors. Measured over five consecutive
+    // Walk Mode frames of one desk, YOLO11n reported `laptop` at 0.70-0.80 on
+    // EVERY frame while `dining table` appeared on one — the clutter is the most
+    // reliable evidence in the scene and all of it was being discarded. A laptop,
+    // bottle or bowl underfoot is something a walker kicks over; in the corridor
+    // it is also the plainest sign the plane ahead is a worktop, not a floor.
+    "laptop",
+    "bottle",
+    "cup",
+    "bowl",
+    "vase",
+    "book",
+    "keyboard",
+    "skateboard",
+    "sports ball",
+    "microwave",
+    "oven",
+    "toaster",
     "potted plant",
     "couch",
     "bed",
@@ -50,6 +68,33 @@ val CANONICAL_LABELS: Set<String> = setOf(
     "sink",
     "toilet",
 )
+
+/**
+ * Labels that only ever rest on a RAISED horizontal surface.
+ *
+ * None of these is ever found sitting on a walking floor, so the base of one is
+ * a measurement: the plane it stands on is a worktop, and everything nearer than
+ * it in the same column is that same worktop.
+ *
+ * This exists because the desk itself is not reliably detectable. Measured over
+ * sixteen CONSECUTIVE Walk Mode frames of a phone sitting on a desk, YOLO11n
+ * reported `dining table` on ONE of them — a 6% hit rate, which no amount of
+ * tracking or coasting can turn into a stable obstacle. It reported `laptop` on
+ * all sixteen, at 0.76-0.92. The furniture is invisible to the detector; the
+ * things on top of it are the most confident detections in the frame.
+ *
+ * Deliberately the strong cases only. A bottle, cup, book or bag genuinely does
+ * end up on floors, so none of those is a witness — they are ordinary obstacles.
+ * `tv` is excluded for the opposite reason: it is the one member of this family
+ * that is routinely mounted on a wall, where there is no surface underneath it
+ * at all.
+ */
+val SURFACE_WITNESS_LABELS: Set<String> = setOf(
+    "laptop", "keyboard", "microwave", "oven", "toaster",
+)
+
+/** Below this, a witness is not confident enough to redefine a surface. */
+const val SURFACE_WITNESS_MIN_CONFIDENCE = 0.50
 
 val LABEL_ALIASES: Map<String, String> = mapOf(
     "backpack" to "bag",

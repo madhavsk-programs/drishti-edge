@@ -32,12 +32,14 @@ class FrameRecorder(context: Context) {
 
     private val filesDir: File? = context.getExternalFilesDir(null)
     private val sentinel = filesDir?.let { File(it, SENTINEL) }
+    private val everyFrame = filesDir?.let { File(it, SENTINEL_ALL) }
     private val outputDir = filesDir?.let { File(it, "frames") }
 
     private var enabled = false
     private var lastSentinelCheckMs = 0L
     private var written = 0
     private var reusableRow: IntArray = IntArray(0)
+    private var stride = EVERY_NTH
 
     /** Call once per analysed frame; cheap and silent when recording is off. */
     fun record(frame: OrientedFrame) {
@@ -51,11 +53,20 @@ class FrameRecorder(context: Context) {
             if (present != enabled) {
                 enabled = present
                 written = 0
-                Log.i(TAG, if (present) "frame capture ON -> $dir" else "frame capture OFF")
+                // A SECOND sentinel rather than a number inside the first:
+                // the file is created by `adb shell`, and under scoped storage
+                // the app can stat it but not always read it, so its contents
+                // are not a signal that can be relied on.
+                stride = if (present && everyFrame?.exists() == true) 1 else EVERY_NTH
+                Log.i(
+                    TAG,
+                    if (present) "frame capture ON (every ${stride}th) -> $dir"
+                    else "frame capture OFF",
+                )
             }
         }
         if (!enabled || written >= MAX_FRAMES) return
-        if (frame.frameId % EVERY_NTH != 0) return
+        if (frame.frameId % stride != 0) return
 
         runCatching {
             dir.mkdirs()
@@ -97,6 +108,8 @@ class FrameRecorder(context: Context) {
     private companion object {
         const val TAG = "FrameRecorder"
         const val SENTINEL = "capture-frames"
+        /** Alongside [SENTINEL]: record EVERY frame, not every [EVERY_NTH]. */
+        const val SENTINEL_ALL = "capture-frames-all"
         const val SENTINEL_POLL_MS = 1_000L
         /** Every 5th frame: enough variety to be representative, few enough to pull. */
         const val EVERY_NTH = 5

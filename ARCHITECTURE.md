@@ -1139,6 +1139,37 @@ The wider gate is bought from segmentation being able to show a side is open, so
 when surfaces are absent it narrows back to the centre's — the same reason the
 free-space rule is disabled in that case.
 
+### 12.2.5 The furniture is invisible; what stands on it is not
+
+Sixteen CONSECUTIVE Walk Mode frames of a phone on a desk: YOLO11n reported
+`dining table` on **one** of them, and `laptop` on **all sixteen** at 0.76-0.92.
+A 6% hit rate is not a flicker that tracking can bridge — the desk is simply not
+detectable in that pose, and SegFormer calls its wooden top `floor`.
+
+So `SURFACE_WITNESS_LABELS` — `laptop`, `keyboard`, `microwave`, `oven`,
+`toaster` — carry a second meaning. None of them is ever found sitting on a
+walking floor, so the base of one is a measurement: the plane it stands on is a
+worktop, and everything nearer than it in the same columns is that same worktop.
+A witness therefore withdraws the walkable claim from its base down to the bottom
+of the frame, across its own x-range only. How far the desk extends sideways is
+not measured, so it is not claimed.
+
+Two gates keep it honest. The witness must be MEDIUM proximity or nearer — a
+laptop on a desk across the room stands on a different surface with floor in
+between, and shadowing below it would condemn that floor. And `tv` is excluded
+from the family: it is the one member routinely mounted on a wall, with no
+surface under it at all.
+
+Measured on captured sequences, the witness costs nothing on an open office
+aisle (identical verdicts) and is what turns the desk scene from mostly CLEAR
+into mostly blocked.
+
+**What this does not solve.** When the centre of the path is bare desktop with
+nothing standing on it, there is no evidence left: the pixels are a wooden plane
+receding to a vanishing point, which is what a wooden floor also is. That case
+needs depth, or a segmentation model that can tell a worktop from a floor at a
+grazing angle. SegFormer-B0 cannot.
+
 ### 12.3 Why the cascade, and why uncertainty is not danger
 
 Rules 1–3 are *evidence-specific* and bypass ordinary scoring because an

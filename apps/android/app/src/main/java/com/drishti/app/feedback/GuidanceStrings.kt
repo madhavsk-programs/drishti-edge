@@ -101,6 +101,18 @@ class GuidanceStrings(appContext: Context) {
             "refrigerator" -> R.string.obstacle_refrigerator
             "sink" -> R.string.obstacle_sink
             "toilet" -> R.string.obstacle_toilet
+            "laptop" -> R.string.obstacle_laptop
+            "bottle" -> R.string.obstacle_bottle
+            "cup" -> R.string.obstacle_cup
+            "bowl" -> R.string.obstacle_bowl
+            "vase" -> R.string.obstacle_vase
+            "book" -> R.string.obstacle_book
+            "keyboard" -> R.string.obstacle_keyboard
+            "skateboard" -> R.string.obstacle_skateboard
+            "sports ball" -> R.string.obstacle_sports_ball
+            "microwave" -> R.string.obstacle_microwave
+            "oven" -> R.string.obstacle_oven
+            "toaster" -> R.string.obstacle_toaster
             else -> return null
         }
         return localized.getString(resId)

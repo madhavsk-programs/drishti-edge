@@ -243,17 +243,36 @@ private fun noFloorAhead(
     corridor.floorExtents.valueFor(choice) <= settings.freespaceBlockedMax
 
 /**
- * The object a blocked-path verdict is about: the worst thing actually in the
- * centre of the path, falling back to the worst thing seen at all. Null when
- * the corridor is blocked by surfaces rather than by anything the detector
- * named — the cascade then says "path blocked", which is all it can defend.
+ * The object a blocked-path verdict is about.
+ *
+ * It has to be something actually IMPLICATED in the verdict. The first version
+ * fell back to the highest-scoring assessment in the frame, which in an open-plan
+ * office is a person ten metres away: `FAR`, risk level `CLEAR`, path overlap
+ * 0.000. The app announced "a person ahead" while the thing in the way was the
+ * desk the user was standing at. Naming the wrong obstacle is worse than naming
+ * none — it tells a blind user to expect something that is not there.
+ *
+ * So a candidate must be in the path, close enough to matter, and above the
+ * watch band. Null when nothing qualifies, and the cascade falls back to the
+ * generic wording, which is all it can defend.
  */
 private fun blockingLabel(
     centreAssessments: List<RiskAssessment>,
     assessments: List<RiskAssessment>,
-): String? = (
-    centreAssessments.maxByOrNull { it.score } ?: assessments.maxByOrNull { it.score }
-    )?.spatial?.tracked?.detection?.label
+): String? {
+    val implicated = { it: RiskAssessment ->
+        it.spatial.pathOverlap >= BLOCKING_LABEL_MIN_OVERLAP &&
+            it.spatial.proximity.band != ProximityBand.FAR &&
+            it.spatial.proximity.band != ProximityBand.UNKNOWN &&
+            it.level != RiskLevel.CLEAR
+    }
+    val centre = centreAssessments.filter(implicated).maxByOrNull { it.score }
+    val anywhere = assessments.filter(implicated).maxByOrNull { it.score }
+    return (centre ?: anywhere)?.spatial?.tracked?.detection?.label
+}
+
+/** Same gate the cascade uses to decide a detection is in the centre path. */
+private const val BLOCKING_LABEL_MIN_OVERLAP = 0.25
 
 private fun clearerSide(corridor: CorridorAnalysis, decisionMargin: Double): CorridorChoice {
     val left = corridor.costs.leftCost

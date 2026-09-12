@@ -172,4 +172,16 @@
     <string name="obstacle_sink">एक सिंक</string>
     <string name="obstacle_toilet">एक शौचालय</string>
     <string name="reason_checking">आगे क्या है, जाँच रहे हैं</string>
+    <string name="obstacle_laptop">एक लैपटॉप</string>
+    <string name="obstacle_bottle">एक बोतल</string>
+    <string name="obstacle_cup">एक कप</string>
+    <string name="obstacle_bowl">एक कटोरा</string>
+    <string name="obstacle_vase">एक फूलदान</string>
+    <string name="obstacle_book">एक किताब</string>
+    <string name="obstacle_keyboard">एक कीबोर्ड</string>
+    <string name="obstacle_skateboard">एक स्केटबोर्ड</string>
+    <string name="obstacle_sports_ball">एक गेंद</string>
+    <string name="obstacle_microwave">एक माइक्रोवेव</string>
+    <string name="obstacle_oven">एक ओवन</string>
+    <string name="obstacle_toaster">एक टोस्टर</string>
 </resources>

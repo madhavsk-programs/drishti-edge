@@ -35,6 +35,23 @@ data class PipelineSettings(
     val trackIouThreshold: Double = 0.20,
     val trackCentreDistanceThreshold: Double = 0.12,
     val trackMaxAgeFrames: Int = 3,
+    /**
+     * Frames an unmatched track keeps reporting its last box, with a decaying
+     * confidence. See [com.drishti.app.perception.SessionTracker].
+     *
+     * **0 because it was measured, not because it is the Python default.** The
+     * idea was to stop obstacles blinking out when the detector misses a frame.
+     * Swept over two captured sequences with `tools/pipeline_eval.py
+     * --sequence --coast-frames N`, it bought nothing and cost accuracy: on a
+     * desk sequence, coast 1 was identical to coast 0 and coast 3 changed one
+     * frame; on an open office aisle it turned four CLEAR frames into one, by
+     * holding boxes for objects the camera had already panned away from.
+     *
+     * The case it was meant to fix turned out not to be a flicker at all —
+     * YOLO11n detects the desk on 6% of frames, which no coast window can
+     * rescue. `SURFACE_WITNESS_LABELS` is what actually fixed it.
+     */
+    val trackCoastFrames: Int = 0,
 
     // Proximity and approach
     val approachChangeThreshold: Double = 0.05,
@@ -145,6 +162,9 @@ data class PipelineSettings(
         require(riskSideBlockThreshold >= riskCentreBlockThreshold) {
             "An escape route must not be condemned on less evidence than the path ahead"
         }
+        require(trackCoastFrames <= trackMaxAgeFrames) {
+            "A track cannot coast for longer than it is kept alive"
+        }
     }
 
     companion object {
@@ -175,6 +195,21 @@ data class PipelineSettings(
             "refrigerator" to 0.85,
             "sink" to 0.65,
             "toilet" to 0.75,
+            // Ground and worktop clutter: low severity because none of it will
+            // hurt you, but every one of them is something to be told about
+            // rather than walked into.
+            "laptop" to 0.45,
+            "bottle" to 0.35,
+            "cup" to 0.30,
+            "bowl" to 0.30,
+            "vase" to 0.45,
+            "book" to 0.25,
+            "keyboard" to 0.25,
+            "skateboard" to 0.55,
+            "sports ball" to 0.35,
+            "microwave" to 0.60,
+            "oven" to 0.70,
+            "toaster" to 0.45,
         )
     }
 }

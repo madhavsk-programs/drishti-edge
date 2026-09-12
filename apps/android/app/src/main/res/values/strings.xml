@@ -190,4 +190,16 @@
     <string name="obstacle_sink">a sink</string>
     <string name="obstacle_toilet">a toilet</string>
     <string name="reason_checking">Checking what is ahead</string>
+    <string name="obstacle_laptop">a laptop</string>
+    <string name="obstacle_bottle">a bottle</string>
+    <string name="obstacle_cup">a cup</string>
+    <string name="obstacle_bowl">a bowl</string>
+    <string name="obstacle_vase">a vase</string>
+    <string name="obstacle_book">a book</string>
+    <string name="obstacle_keyboard">a keyboard</string>
+    <string name="obstacle_skateboard">a skateboard</string>
+    <string name="obstacle_sports_ball">a ball</string>
+    <string name="obstacle_microwave">a microwave</string>
+    <string name="obstacle_oven">an oven</string>
+    <string name="obstacle_toaster">a toaster</string>
 </resources>

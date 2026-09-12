@@ -73,6 +73,7 @@ class LocalWalkPipeline(
         iouThreshold = settings.trackIouThreshold,
         centreDistanceThreshold = settings.trackCentreDistanceThreshold,
         maxAgeFrames = settings.trackMaxAgeFrames,
+        coastFrames = settings.trackCoastFrames,
     )
     private val stateMachine = AlertStateMachine(settings)
 
