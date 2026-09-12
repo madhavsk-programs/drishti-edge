@@ -108,4 +108,23 @@
         <item>"எங்கே "</item>
         <item>"என்னை அழைத்துச் செல் "</item>
     </string-array>
+
+    <!-- Ask -> Lock -> Guide: one-shot confirmation after a lock -->
+    <string name="locate_person_refused">நான் மனிதர்களிடம் வழிகாட்ட மாட்டேன்.</string>
+    <string name="locate_found_scan">%1$s கிடைத்தது. நின்று மெதுவாகச் சுற்றிப் பாருங்கள்.</string>
+    <string name="locate_ahead">%1$s முன்னால் உள்ளது. முன்னே நடங்கள்.</string>
+    <string name="locate_ahead_near">%1$s உங்களுக்கு நேர் முன்னால் உள்ளது.</string>
+    <string name="locate_behind">%1$s உங்களுக்குப் பின்னால் %2$s பக்கம் உள்ளது. திரும்புங்கள்.</string>
+    <string name="locate_side">%1$s உங்கள் %2$s பக்கம் உள்ளது. %2$s திரும்புங்கள்.</string>
+    <string name="side_left">இடது</string>
+    <string name="side_right">வலது</string>
+
+    <!-- Ask -> Lock -> Guide: per-frame turn-by-turn cues -->
+    <string name="target_turn">%1$s திரும்புங்கள்.</string>
+    <string name="target_keep_turning">%1$s பக்கம் திரும்பிக்கொண்டே இருங்கள்.</string>
+    <string name="target_face_and_walk">நீங்கள் அதை நோக்கி உள்ளீர்கள். முன்னே நடங்கள்.</string>
+    <string name="target_walking">தொடர்ந்து நடங்கள்.</string>
+    <string name="target_arrived">அது உங்களுக்கு நேர் முன்னால் இருக்க வேண்டும்.</string>
+    <string name="target_reacquire">நின்று மெதுவாகச் சுற்றிப் பாருங்கள்.</string>
+    <string name="target_lost">அதைத் தொலைத்துவிட்டேன். நின்று மெதுவாகச் சுற்றிப் பாருங்கள்.</string>
 </resources>

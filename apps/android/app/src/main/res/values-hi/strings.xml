@@ -109,4 +109,23 @@
         <item>"खोजें "</item>
         <item>"ले चलो "</item>
     </string-array>
+
+    <!-- Ask -> Lock -> Guide: one-shot confirmation after a lock -->
+    <string name="locate_person_refused">मैं लोगों तक मार्गदर्शन नहीं करता।</string>
+    <string name="locate_found_scan">%1$s मिला। रुकें और धीरे-धीरे चारों ओर देखें।</string>
+    <string name="locate_ahead">%1$s सामने है। आगे चलें।</string>
+    <string name="locate_ahead_near">%1$s ठीक आपके सामने है।</string>
+    <string name="locate_behind">%1$s आपके पीछे %2$s ओर है। पीछे मुड़ें।</string>
+    <string name="locate_side">%1$s आपकी %2$s ओर है। %2$s मुड़ें।</string>
+    <string name="side_left">बाईं</string>
+    <string name="side_right">दाईं</string>
+
+    <!-- Ask -> Lock -> Guide: per-frame turn-by-turn cues -->
+    <string name="target_turn">%1$s मुड़ें।</string>
+    <string name="target_keep_turning">%1$s ओर मुड़ते रहें।</string>
+    <string name="target_face_and_walk">आप उसके सामने हैं। आगे चलें।</string>
+    <string name="target_walking">चलते रहें।</string>
+    <string name="target_arrived">वह ठीक आपके सामने होना चाहिए।</string>
+    <string name="target_reacquire">रुकें और धीरे-धीरे चारों ओर देखें।</string>
+    <string name="target_lost">वह खो गया। रुकें और धीरे-धीरे चारों ओर देखें।</string>
 </resources>

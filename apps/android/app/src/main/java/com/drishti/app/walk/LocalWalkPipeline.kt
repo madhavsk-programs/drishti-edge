@@ -21,10 +21,13 @@ import com.drishti.app.net.NormalizedPoint
 import com.drishti.app.net.OverlayContract
 import com.drishti.app.net.RiskLevel
 import com.drishti.app.net.StageTimings
+import com.drishti.app.perception.DetectionCandidate
+import com.drishti.app.perception.LandmarkMemory
 import com.drishti.app.perception.SessionTracker
 import com.drishti.app.risk.AlertStateMachine
 import com.drishti.app.risk.scoreTracks
 import com.drishti.app.risk.selectAction
+import com.drishti.app.scene.TargetGuidance
 import com.drishti.app.spatial.SurfaceEvidence
 import com.drishti.app.spatial.SurfaceEvidenceBuilder
 import com.drishti.app.spatial.analyzeCorridors
@@ -64,6 +67,24 @@ class LocalWalkPipeline(
     )
     private val stateMachine = AlertStateMachine(settings)
 
+    /**
+     * Find, on device (ARCHITECTURE.md §14). [landmarks] is fed every frame
+     * from the full COCO view; [targetGuidance] steps once per frame after the
+     * safety verdict so a target cue can never outrank it. Both are scoped to
+     * this pipeline, i.e. to the walk session, and die with it.
+     */
+    val landmarks = LandmarkMemory(cameraHfovDegrees = TargetGuidance.WALK_CAMERA_HFOV_DEGREES)
+    val targetGuidance = TargetGuidance(cameraHfovDegrees = TargetGuidance.WALK_CAMERA_HFOV_DEGREES)
+
+    /** The last frame's full COCO view, for a locate against the live scene. */
+    @Volatile
+    var lastFullView: List<DetectionCandidate> = emptyList()
+        private set
+
+    @Volatile
+    var lastFrameMillis: Long = 0L
+        private set
+
     /** Surfaced in diagnostics; the §6.2 evidence set reads this. */
     val backend: InferenceBackend get() = detector.backend
     val detail: String get() = detector.detail
@@ -77,10 +98,18 @@ class LocalWalkPipeline(
         sessionId: String,
         riskSensitivity: Double,
         hapticsEnabled: Boolean,
+        headingDegrees: Double? = null,
     ): FrameAnalysisResponse {
         val started = System.nanoTime()
         val outcome = detector.detect(frame)
         lastInferenceMillis = outcome.stats.inferenceMillis
+
+        // Landmark memory reads the full COCO view straight off the detector,
+        // before tracking or scoring: a label says an object is present, which
+        // is all Find needs, and is not evidence that it obstructs the path.
+        landmarks.observe(frame.capturedAtMillis, headingDegrees, outcome.detections.all)
+        lastFullView = outcome.detections.all
+        lastFrameMillis = frame.capturedAtMillis
 
         val tracked = tracker.update(
             detections = outcome.detections.risk,
@@ -101,6 +130,16 @@ class LocalWalkPipeline(
         val proposed = selectAction(assessments, corridor, settings)
         val stable = stateMachine.apply(proposed, nowMillis = frame.capturedAtMillis)
         val riskEnd = System.nanoTime()
+
+        // Safety has already decided. Anything other than CLEAR overrides the
+        // target cue for this frame; it is dropped, not queued (§13.4).
+        val targetTracking = targetGuidance.step(
+            nowMs = frame.capturedAtMillis,
+            headingDegrees = headingDegrees,
+            detections = outcome.detections.all,
+            isSafetyOverridden = stable.action != GuidanceAction.CLEAR,
+            hapticsEnabled = hapticsEnabled,
+        )
 
         val detections = assessments.map { assessment ->
             val spatial = assessment.spatial
@@ -186,7 +225,7 @@ class LocalWalkPipeline(
                 speak = stable.speak,
                 reasonCode = stable.reasonCode,
             ),
-            targetTracking = null,
+            targetTracking = targetTracking,
             timings = StageTimings(
                 decodeMs = outcome.stats.preprocessMillis,
                 detectionMs = outcome.stats.inferenceMillis,

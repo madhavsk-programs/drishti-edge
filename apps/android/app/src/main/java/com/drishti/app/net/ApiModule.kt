@@ -41,32 +41,12 @@ private class BaseUrlInterceptor : Interceptor {
     }
 }
 
-/**
- * The local VLM reloads Moondream2 from disk on every request, so `/vlm/query`
- * and `/vlm/locate` legitimately take many seconds (backend timeout is 45 s).
- * Widen only those calls' read timeout; every other endpoint keeps the tight 30 s budget.
- */
-private class VlmTimeoutInterceptor : Interceptor {
-    override fun intercept(chain: Interceptor.Chain): Response {
-        val request = chain.request()
-        val path = request.url.encodedPath
-        if (!path.endsWith("/vlm/query") && !path.endsWith("/vlm/locate")) {
-            return chain.proceed(request)
-        }
-        return chain
-            .withReadTimeout(70, TimeUnit.SECONDS)
-            .withWriteTimeout(30, TimeUnit.SECONDS)
-            .proceed(request)
-    }
-}
-
 object ApiModule {
 
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     fun create(debug: Boolean): DrishtiApi {
         val client = OkHttpClient.Builder()
             .addInterceptor(BaseUrlInterceptor())
-            .addInterceptor(VlmTimeoutInterceptor())
             .apply {
                 if (debug) {
                     addInterceptor(

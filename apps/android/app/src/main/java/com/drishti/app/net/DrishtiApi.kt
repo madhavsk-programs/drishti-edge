@@ -24,60 +24,9 @@ interface DrishtiApi {
     @PATCH("api/v1/walk/sessions/{id}/end")
     suspend fun endSession(@Path("id") sessionId: String): Response<EndWalkSessionResponse>
 
-    @Multipart
-    @POST("api/v1/walk/analyze")
-    suspend fun analyze(
-        @Part frame: MultipartBody.Part,
-        @Part("session_id") sessionId: RequestBody,
-        @Part("frame_id") frameId: RequestBody,
-        @Part("captured_at") capturedAt: RequestBody,
-        @Part("rotation_degrees") rotationDegrees: RequestBody,
-        @Part("heading_degrees") headingDegrees: RequestBody? = null,
-    ): Response<FrameAnalysisResponse>
-
-    @Multipart
-    @POST("api/v1/explore")
-    suspend fun explore(
-        @Part frame: MultipartBody.Part,
-        @Part("mode") mode: RequestBody,
-        @Part("preferred_language") preferredLanguage: RequestBody,
-    ): Response<ReadTextResponse>
-
-    /**
-     * On-demand local VLM. User-triggered only — never on the Walk loop. The
-     * backend loads Moondream2 per request, so this call is slow (seconds); the
-     * VLM read timeout is widened for `/vlm/query` in [ApiModule].
-     */
-    @Multipart
-    @POST("api/v1/vlm/query")
-    suspend fun vlmQuery(
-        @Part frame: MultipartBody.Part,
-        @Part("prompt") prompt: RequestBody,
-    ): Response<VlmQueryResponse>
-
-    /**
-     * Ask -> Lock. `target_name` + `session_id` are query params; no image is
-     * sent — the backend locates against its own in-memory latest frame for
-     * that active Walk session (D-068). Read timeout is widened in [ApiModule].
-     */
-    @POST("api/v1/vlm/locate")
-    suspend fun vlmLocate(
-        @Query("target_name") targetName: String,
-        @Query("session_id") sessionId: String,
-    ): Response<VlmLocateResponse>
-
-    /**
-     * Same as [vlmLocate] but with a freshly captured still, so the target is
-     * located against *now* rather than the (up to ~17 s old) frame the backend
-     * cached when the Ask gesture paused the Walk loop.
-     */
-    @Multipart
-    @POST("api/v1/vlm/locate")
-    suspend fun vlmLocate(
-        @Query("target_name") targetName: String,
-        @Query("session_id") sessionId: String,
-        @Part frame: MultipartBody.Part,
-    ): Response<VlmLocateResponse>
+    // Detection, OCR, scene description and target locating all run on the
+    // phone. The coordinator only backs the dashboard, so this client no
+    // longer has /walk/analyze, /explore or /vlm/* — see BUILD_PLAN.md A9.
 
     @POST("api/v1/hazards")
     suspend fun createHazard(@Body request: CreateHazardRequest): Response<HazardResponse>

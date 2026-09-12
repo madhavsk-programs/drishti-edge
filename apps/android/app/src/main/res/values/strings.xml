@@ -128,4 +128,23 @@
         <item>"guide me to "</item>
         <item>"go to "</item>
     </string-array>
+
+    <!-- Ask -> Lock -> Guide: one-shot confirmation after a lock -->
+    <string name="locate_person_refused">I don\'t guide to people.</string>
+    <string name="locate_found_scan">%1$s found. Stop and scan around slowly.</string>
+    <string name="locate_ahead">%1$s is ahead. Walk forward.</string>
+    <string name="locate_ahead_near">%1$s is right in front of you.</string>
+    <string name="locate_behind">%1$s is behind you on the %2$s. Turn around.</string>
+    <string name="locate_side">%1$s is to your %2$s. Turn %2$s.</string>
+    <string name="side_left">left</string>
+    <string name="side_right">right</string>
+
+    <!-- Ask -> Lock -> Guide: per-frame turn-by-turn cues -->
+    <string name="target_turn">Turn %1$s.</string>
+    <string name="target_keep_turning">Keep turning %1$s.</string>
+    <string name="target_face_and_walk">You\'re facing it. Walk forward.</string>
+    <string name="target_walking">Keep going.</string>
+    <string name="target_arrived">You should be right in front of it.</string>
+    <string name="target_reacquire">Stop and scan around slowly.</string>
+    <string name="target_lost">I\'ve lost it. Stop and scan around slowly.</string>
 </resources>

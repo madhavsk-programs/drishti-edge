@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.res.Configuration
 import com.drishti.app.R
 import com.drishti.app.net.GuidanceAction
+import com.drishti.app.net.TargetGuidanceStep
+import com.drishti.app.net.TargetTrackingState
+import com.drishti.app.net.TargetTrackingTelemetry
 import com.drishti.app.net.GuidanceContract
 
 /**
@@ -73,6 +76,32 @@ class GuidanceStrings(appContext: Context) {
     }
 
     fun string(resId: Int, vararg args: Any): String = localized.getString(resId, *args)
+
+    /**
+     * The spoken line for a target-guidance step (ARCHITECTURE.md §14.3).
+     * Chosen here, not in the guidance engine, so it follows the spoken
+     * language setting like every other line.
+     */
+    fun targetLine(tt: TargetTrackingTelemetry): String? {
+        val side = localized.getString(
+            if ((tt.bearingDegrees ?: 0.0) > 0) R.string.side_right else R.string.side_left,
+        )
+        return when (tt.guidanceStep) {
+            TargetGuidanceStep.TURN_LEFT, TargetGuidanceStep.TURN_RIGHT ->
+                localized.getString(R.string.target_turn, side)
+            TargetGuidanceStep.KEEP_TURNING -> localized.getString(R.string.target_keep_turning, side)
+            TargetGuidanceStep.FACE_AND_WALK -> localized.getString(R.string.target_face_and_walk)
+            TargetGuidanceStep.WALKING -> localized.getString(R.string.target_walking)
+            TargetGuidanceStep.ARRIVED -> localized.getString(R.string.target_arrived)
+            TargetGuidanceStep.REACQUIRE ->
+                if (tt.trackingState == TargetTrackingState.LOST) {
+                    localized.getString(R.string.target_lost)
+                } else {
+                    localized.getString(R.string.target_reacquire)
+                }
+            TargetGuidanceStep.NONE -> null
+        }
+    }
 
     /**
      * Lower-cased leading phrases that turn a spoken request into an

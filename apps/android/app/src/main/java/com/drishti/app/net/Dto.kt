@@ -288,60 +288,6 @@ data class TargetTrackingTelemetry(
     val hapticPattern: TargetHapticPattern = TargetHapticPattern.NONE,
 )
 
-// ---- VLM locate (Ask -> Lock) ---------------------------------------------
-
-@Serializable
-data class VlmTargetBox(
-    val xMin: Double,
-    val yMin: Double,
-    val xMax: Double,
-    val yMax: Double,
-)
-
-@Serializable
-data class VlmLocatedTarget(
-    val label: String,
-    val confidence: Double? = null,
-    val box: VlmTargetBox,
-    val point: NormalizedPoint,
-)
-
-@Serializable
-data class VlmLocateResponse(
-    val schemaVersion: String,
-    val serverTime: String,
-    val model: String,
-    val text: String,
-    val target: VlmLocatedTarget,
-    val bearingDegrees: Double? = null,
-    val rangeHint: TargetRangeHint = TargetRangeHint.UNKNOWN,
-    /** "MEMORY" (landmark buffer) or "VLM" (Moondream2 fallback). */
-    val resolvedFrom: String? = null,
-    val trackingAllowed: Boolean,
-    val sourceFrameId: Int? = null,
-    val timings: VlmTimings,
-)
-
-// ---- VLM (on-demand scene description / Q&A) ---------------------------------
-
-@Serializable
-data class VlmTimings(
-    val decodeMs: Double,
-    val loadMs: Double,
-    val inferenceMs: Double,
-    val unloadMs: Double,
-    val totalMs: Double,
-)
-
-@Serializable
-data class VlmQueryResponse(
-    val schemaVersion: String,
-    val serverTime: String,
-    val model: String,
-    val text: String,
-    val timings: VlmTimings,
-)
-
 // ---- Hazards ------------------------------------------------------------------
 
 @Serializable

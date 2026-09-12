@@ -148,7 +148,7 @@ class WalkController(
     // staged; SceneDescriber then refuses audibly rather than silently.
     private val sceneVlm = SceneVlm.create(app)
     private val scene = SceneDescriber(sceneVlm, pipeline, speech, strings, VoicePrompt(app))
-    private val locator = TargetLocator(api, speech, strings)
+    private val locator = TargetLocator(speech, strings)
     private val hazards = HazardReporter(api, pipeline, speech, strings)
     private val nearby = NearbyAdvisor(api, speech, strings)
     private val sos = SosController(scope, speech, strings)
@@ -364,6 +364,7 @@ class WalkController(
                     sessionId = id,
                     riskSensitivity = settings.riskSensitivity.toDouble(),
                     hapticsEnabled = settings.hapticsEnabled,
+                    headingDegrees = gyro.currentHeadingDegrees()?.toDouble(),
                 )
             }
         }
@@ -464,8 +465,11 @@ class WalkController(
      * cues can never preempt or delay a safety instruction. Target speech is
      * always QUEUE_ADD, never a flush.
      */
-    private fun applyTargetTracking(tt: TargetTrackingTelemetry?) {
-        if (tt == null) return
+    private fun applyTargetTracking(raw: TargetTrackingTelemetry?) {
+        if (raw == null) return
+        // The engine leaves `speech` empty; the line is chosen here so it
+        // follows the spoken-language setting.
+        val tt = if (raw.speak) raw.copy(speech = strings.targetLine(raw).orEmpty()) else raw
         _state.value = _state.value.copy(target = tt)
         if (tt.isSafetyOverridden) {
             spatial.targetPan(null)
@@ -554,11 +558,13 @@ class WalkController(
         val heard = scene.listenForRequest(settings.language.tag)
         val target = extractLocateTarget(heard)
         if (target != null) {
-            // Locate against a fresh frame: the backend's cached frame is from
-            // the moment of the gesture, now ~17 s and one prompt+listen old.
-            val jpeg = pipeline.captureStill(maxWidth = 1280, quality = 85)
-            locator.locateOnce(id, target, jpeg)
-            // Ongoing guidance now flows from target_tracking on each walk frame.
+            // Resolved from the session's landmark memory and the last live
+            // frame, on device. Under the inference lock so it never reads
+            // memory while a frame is being folded in.
+            inferenceLock.withLock {
+                locator.locateOnce(target, localPipeline, gyro.currentHeadingDegrees()?.toDouble())
+            }
+            // Ongoing guidance now flows from targetTracking on each walk frame.
         } else {
             val result = scene.describeOnce(heard)
             if (result != null) {
