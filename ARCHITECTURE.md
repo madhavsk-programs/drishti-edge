@@ -459,6 +459,16 @@ capabilities while appearing to work.
 5. Replay the existing indoor semantic fixtures in
    `backend/tests/fixtures/indoor/`.
 
+> **Implementation result — 12 September 2026.** The deployed ADE20K graph is
+> portable w8a16 QDQ with float public IO. A provider profile isolated two
+> constant classifier dequantizers as the only CPU nodes; folding exactly those
+> constants made the session create with CPU fallback disabled. The 12 GB iQOO
+> probe measured 11.33 ms guarded HTP versus 150.25 ms CPU. A public indoor
+> fixture retained 99.91% safety-surface agreement, identical corridor threshold
+> states, zero hazard-flag differences, and 0.00391 maximum corridor-ratio drift.
+> This passes runtime placement and integration parity; fixture replay and field
+> validation remain separate safety gates.
+
 Qualcomm's
 [SegFormer-B0 ADE20K page](https://aihub.qualcomm.com/iot/models/segformer_base)
 documents the correct 150-class checkpoint, but does not by itself prove support
@@ -591,6 +601,12 @@ melt the phone twenty hours later.
 > **MEASURE 7.3.1** — Does inference time drop by roughly an order of magnitude
 > when the NPU backend is selected versus CPU, *and* does the runtime report the
 > accelerator? Both, or the claim is not made.
+
+> **Measured:** yes for both resident models on the 12 GB iQOO 15. YOLO11n is
+> 3.30 ms guarded HTP versus 27.35 ms CPU; SegFormer-B0 is 11.33 ms guarded HTP
+> versus 150.25 ms CPU. In both cases
+> `session.disable_cpu_ep_fallback=1` turns any CPU-assigned node into a session
+> creation failure, so the placement claim does not depend on timing alone.
 
 ### 7.4 Build traceability
 

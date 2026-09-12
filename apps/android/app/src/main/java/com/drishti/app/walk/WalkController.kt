@@ -179,6 +179,7 @@ class WalkController(
     private var nextAllowedAtMs = 0L
     private var announcedSurfaceDegraded = false
     private var lastTargetSpeech: String? = null
+    private var loggedFirstLocalFrame = false
 
     private var tickers = mutableListOf<Job>()
     private var boundOwner: LifecycleOwner? = null
@@ -229,6 +230,7 @@ class WalkController(
             frameCounter.set(0)
             announcedSurfaceDegraded = false
             lastTargetSpeech = null
+            loggedFirstLocalFrame = false
             nextAllowedAtMs = 0L
 
             spatial.start()
@@ -363,6 +365,18 @@ class WalkController(
         }
         response.onSuccess {
             gate.finishSuccess()
+            if (!loggedFirstLocalFrame) {
+                loggedFirstLocalFrame = true
+                Log.i(
+                    TAG,
+                    "first local frame ${it.frameId}: total=%.2f ms, detection=%s ms, segmentation=%s ms"
+                        .format(
+                            it.timings.totalMs,
+                            it.timings.detectionMs?.let { value -> "%.2f".format(value) } ?: "n/a",
+                            it.timings.segmentationMs?.let { value -> "%.2f".format(value) } ?: "reused",
+                        ),
+                )
+            }
             pace(it.timings.totalMs, it.frameAgeMs)
             applyResponse(it)
         }.onFailure {

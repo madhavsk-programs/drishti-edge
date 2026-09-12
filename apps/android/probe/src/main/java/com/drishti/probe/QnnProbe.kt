@@ -144,7 +144,13 @@ object QnnProbe {
     /** @return (status, detail) where status starts with "OK" on success. */
     private fun attempt(model: File, backend: Backend): Pair<String, String> {
         val opts = OrtSession.SessionOptions()
+        val captureProviderProfile =
+            backend == Backend.NPU_UNGUARDED && model.name.startsWith("segformer") &&
+                File(model.parentFile, "capture_segformer_profile").isFile
         return try {
+            if (captureProviderProfile) {
+                opts.enableProfiling(File(model.parentFile, "segformer-provider-profile").absolutePath)
+            }
             when (backend) {
                 Backend.NPU_GUARDED -> {
                     // The structural guarantee: a CPU fallback becomes a thrown
@@ -170,8 +176,15 @@ object QnnProbe {
 
                 val javaType = (s.inputInfo[inputName]!!.info as ai.onnxruntime.TensorInfo).type
                 detail.appendLine("dtype  $javaType")
-                val fixture = File(model.parentFile, "yolo_input.f32")
-                    .takeIf { model.name.startsWith("yolo11n_") && shape.contentEquals(longArrayOf(1, 3, 640, 640)) && it.isFile }
+                val fixture = when {
+                    model.name.startsWith("yolo11n_") &&
+                        shape.contentEquals(longArrayOf(1, 3, 640, 640)) ->
+                        File(model.parentFile, "yolo_input.f32")
+                    model.name.startsWith("segformer") &&
+                        shape.contentEquals(longArrayOf(1, 3, 512, 512)) ->
+                        File(model.parentFile, "segformer_input.f32")
+                    else -> null
+                }?.takeIf { it.isFile }
                 detail.appendLine("input source: ${fixture?.name ?: "synthetic 0.5 (latency only)"}")
                 val t = time(s, inputName, shape, javaType, fixture,
                     File(model.parentFile, "${model.name}.${backend.name}.f32"))
@@ -179,6 +192,11 @@ object QnnProbe {
                     "warmup %.1f ms | mean %.2f ms | p50 %.2f ms | min %.2f ms"
                         .format(t.warmupMs, t.meanMs, t.p50Ms, t.minMs),
                 )
+                if (captureProviderProfile) {
+                    runCatching { s.endProfiling() }
+                        .onSuccess { detail.appendLine("provider profile: $it") }
+                        .onFailure { detail.appendLine("provider profile failed: ${it.message}") }
+                }
                 Log.i(TAG, "$backend: ${t.meanMs} ms mean")
                 "OK" to detail.toString().trimEnd()
             }
@@ -197,22 +215,14 @@ object QnnProbe {
     private fun htpOptions(): Map<String, String> = mapOf(
         "backend_path" to "libQnnHtp.so",
         "htp_performance_mode" to "burst",
-        // htp_arch and soc_model were both tried explicitly (V81 / SM8850) to
-        // work around QNN_DEVICE_ERROR_INVALID_CONFIG on this device; neither
-        // changed the outcome, so QNN's own device auto-detection is left in
-        // charge here rather than guessing at more overrides. See
-        // BUILD_PLAN.md §3.4 for the standing verdict: QAIRT 2.50.0 fails
-        // QnnDevice_create() on this SM8850 unit; QAIRT 2.42.0 (older, via the
-        // ORT AAR's own transitive dependency) creates the device successfully
-        // but cannot load a context binary compiled for the 2.50.x line.
+        // QNN's device auto-detection is intentionally left in charge. The
+        // transitive 2.42 runtime creates this SM8850 device and compiles the
+        // portable QDQ models on-device; no soc_model guess is necessary.
     )
 
     /**
-     * The two models differ in BOTH layout and dtype, so nothing here may be
-     * hardcoded:
-     *   yolo11n_qnn.onnx   NHWC [1,640,640,3] float32
-     *   segformer_base.onnx NCHW [1,3,512,512] uint16 (quantized IO)
-     * Shape and type are read from the session every time.
+     * Legacy EPContext YOLO is NHWC while the portable models are NCHW; shape
+     * and type are therefore read from the session every time.
      */
     private fun time(
         session: OrtSession,

@@ -5,6 +5,7 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import ai.onnxruntime.TensorInfo
 import android.content.Context
+import android.system.Os
 import android.util.Log
 import com.drishti.app.net.SurfaceKind
 import com.drishti.app.spatial.Surfaces
@@ -25,8 +26,9 @@ private const val TAG = "SegFormer"
  * The published export declares uint16 IO, and ORT's Java API cannot construct
  * a uint16 tensor at all (`OnnxJavaType` has no UINT16), so the boundary
  * quantize/dequantize pair is removed offline and the float tensors the network
- * already computes on are promoted to be the graph's IO. Lossless, and it works
- * on both the CPU and the NPU rung.
+ * already computes on are promoted to be the graph's IO. The two constant
+ * classifier dequantizers are folded offline as well; otherwise ORT leaves
+ * those two nodes on CPU. The export tool checks that fold for exact parity.
  */
 class SegFormerSegmenter private constructor(
     private val env: OrtEnvironment,
@@ -170,27 +172,78 @@ class SegFormerSegmenter private constructor(
                 Log.w(TAG, "No usable $LABELS; segmentation disabled")
                 return null
             }
+            val env = OrtEnvironment.getEnvironment()
+            setAdspLibraryPath(context)
+
+            val npuOptions = OrtSession.SessionOptions()
+            try {
+                npuOptions.addConfigEntry("session.disable_cpu_ep_fallback", "1")
+                npuOptions.addQnn(
+                    mapOf(
+                        "backend_path" to "libQnnHtp.so",
+                        "htp_performance_mode" to "burst",
+                    )
+                )
+                return open(env, model, labels, npuOptions, InferenceBackend.NPU)
+            } catch (exc: Throwable) {
+                Log.w(TAG, "guarded NPU rung unavailable; descending to CPU", exc)
+            } finally {
+                runCatching { npuOptions.close() }
+            }
+
+            val cpuOptions = OrtSession.SessionOptions()
             return try {
-                val env = OrtEnvironment.getEnvironment()
-                val options = OrtSession.SessionOptions()
-                val session = env.createSession(model.absolutePath, options)
+                open(env, model, labels, cpuOptions, InferenceBackend.CPU)
+            } catch (exc: Throwable) {
+                Log.e(TAG, "SegFormer failed to load", exc)
+                null
+            } finally {
+                runCatching { cpuOptions.close() }
+            }
+        }
+
+        private fun open(
+            env: OrtEnvironment,
+            model: File,
+            labels: Map<Int, String>,
+            options: OrtSession.SessionOptions,
+            backend: InferenceBackend,
+        ): SegFormerSegmenter {
+            val session = env.createSession(model.absolutePath, options)
+            return try {
                 val inputName = session.inputNames.first()
                 val shape = (session.inputInfo.getValue(inputName).info as TensorInfo).shape
                 SegFormerSegmenter(
                     env = env,
                     session = session,
-                    backend = InferenceBackend.CPU,
+                    backend = backend,
                     inputName = inputName,
                     inputHeight = shape[2].toInt(),
                     inputWidth = shape[3].toInt(),
                     idToLabel = labels,
                 ).also {
-                    Log.i(TAG, "segmentation ready: ${it.inputWidth}x${it.inputHeight}, ${labels.size} classes")
+                    Log.i(
+                        TAG,
+                        "segmentation ready on $backend: ${it.inputWidth}x${it.inputHeight}, " +
+                            "${labels.size} classes",
+                    )
                 }
             } catch (exc: Throwable) {
-                Log.e(TAG, "SegFormer failed to load", exc)
-                null
+                runCatching { session.close() }
+                throw exc
             }
+        }
+
+        private fun setAdspLibraryPath(context: Context) {
+            val libDir = context.applicationInfo.nativeLibraryDir
+            val path = listOf(
+                libDir,
+                "/vendor/lib/rfsa/adsp",
+                "/vendor/dsp/cdsp",
+                "/system/lib/rfsa/adsp",
+            ).joinToString(";")
+            runCatching { Os.setenv("ADSP_LIBRARY_PATH", path, true) }
+                .onFailure { Log.w(TAG, "Could not set ADSP_LIBRARY_PATH", it) }
         }
 
         internal fun readLabels(file: File): Map<Int, String> {

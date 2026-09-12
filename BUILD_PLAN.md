@@ -23,9 +23,9 @@ phone established the portable NPU path on the smaller production variant.
 
 | Item | State |
 |---|---|
-| **Walking loop, end to end** | **On-device.** Detection → tracking → corridors → risk → state machine → speech/haptics/overlay. The prior 16 GB run measured **~55 ms/frame** on the all-CPU model rung |
+| **Walking loop, end to end** | **On-device.** Detection → tracking → corridors → risk → state machine → speech/haptics/overlay. A warmed live frame on the 12 GB phone measured **57.96 ms total** |
 | Detection | YOLO11n portable w8a16 QDQ, **guarded NPU rung**, live in the app. Real-fixture probe: **3.30 ms NPU vs 27.35 ms CPU** |
-| Segmentation | SegFormer-B0 ADE20K, every 3rd frame. QNN improves it to **12.83 ms vs 126.24 ms CPU**, but the guarded session proves that some nodes still fall back to CPU |
+| Segmentation | SegFormer-B0 ADE20K, every 3rd frame, **guarded NPU rung**. Probe: **11.33 ms NPU vs 150.25 ms CPU** on a public fixture |
 | Guidance | Reaches reasoned verdicts — `CENTRE_BLOCKED_DIRECTION_UNCLEAR` with left walkable and centre blocked, not a generic pause |
 | Network in the walk path | **None.** `api.analyze`, the multipart assembly and the retry loop are deleted, not toggled |
 | Tests | **49 unit tests, 0 failures** |
@@ -95,11 +95,11 @@ Android 16**. The original loaner has 16 GB RAM and measured `availMem`
 12 GB RAM plus 12 GB compressed swap; the probe measured **5,155 MB available
 of 11,205 MB**. Swap remains excluded from the model budget.
 
-### NPU status — detector resolved, segmenter still partial
+### NPU status — both resident models resolved
 
-The EPContext version blocker is gone. A portable QDQ detector compiles against
-the transitive 2.42 runtime on the phone and creates with CPU fallback disabled.
-SegFormer still has fallback nodes; it is characterised precisely in
+The EPContext version blocker is gone. Both portable QDQ graphs compile against
+the transitive 2.42 runtime on the phone and create with CPU fallback disabled.
+The model rewrites and evidence are characterised precisely in
 [§3.5](#35-the-npu-on-real-silicon--where-it-actually-stands).
 
 ### Running it
@@ -360,7 +360,7 @@ on the phone, what the laptop pipeline already does indoors. Point by point:
 | Demo beat | Depends on | Verdict |
 |---|---|---|
 | Walk a corridor, hear obstacle guidance | YOLO11n on NPU | **Yes.** 2.27 ms, same labels, same canonicalization, same 19-class audited view. |
-| "Wall ahead", "stairs ahead", floor polygon | SegFormer-B0 ADE20K | **Yes on-device; full-NPU placement still open.** Identical checkpoint and 150 classes. Current QNN execution is 12.83 ms but the fallback guard proves some nodes remain on CPU. |
+| "Wall ahead", "stairs ahead", floor polygon | SegFormer-B0 ADE20K on NPU | **Yes.** Identical checkpoint and 150 classes. The rewritten graph creates with CPU fallback disabled and measures 11.33 ms on the current phone. |
 | Obstacle centre → "move left" | Corridor geometry + risk engine, pure Kotlin | **Yes,** and it is a port under golden-vector parity, not a reimplementation. |
 | Camera covered → `PAUSE_UNCLEAR` | Risk cascade, pure Kotlin | **Yes.** |
 | Find the bottle I walked past | Landmark memory from the full-COCO view | **Yes,** no extra inference, no VLM. |
@@ -641,7 +641,7 @@ account. One signup, one download, done once, entirely within Part 0.
 > backend libraries. That was true of the AAR's own payload and is **false of
 > its dependency graph**, which changes the problem completely.
 
-#### Result on 12 September 2026: portable YOLO QDQ succeeds
+#### Result on 12 September 2026: both portable QDQ models succeed
 
 Option C below was executed. [`tools/export_yolo_qdq.py`](tools/export_yolo_qdq.py)
 exports a static, float-IO YOLO11n graph with w8a16 QDQ nodes and **no
@@ -657,11 +657,22 @@ and maximum confidence drift **0.068**. The app then loaded the same artifact
 on its guarded NPU rung in live Walk Mode. This proves execution placement and
 one integration fixture; it is **not** an mAP or field-safety evaluation.
 
-SegFormer remains narrower work: its float-IO QDQ graph measures **12.83 ms**
-with unguarded QNN versus **126.24 ms** on CPU, but guarded session creation
-fails because some nodes are assigned to the CPU EP. Therefore detection is
-fully on HTP; segmentation is mixed QNN/CPU; an "all models on the NPU" claim
-is not yet valid.
+SegFormer was then resolved with a provider profile. The entire network was one
+QNN partition except for two CPU `DequantizeLinear` nodes feeding the final
+classifier's constant weight and bias. `tools/segformer_float_io.py` now folds
+only those constants and verifies **bit-identical logits and 100% pixel argmax
+agreement** against the prior float-IO graph before writing the artifact.
+
+The rewritten graph (SHA-256
+`6c31edf490cf7d215d2654d41f0f392dcc79926bdff6e7fdc43fe906681e7f7f`)
+creates with the fallback guard enabled and measures **11.33 ms NPU versus
+150.25 ms CPU** on a public fixture. On a public indoor floor/wall fixture, NPU
+and CPU agree on **99.50%** of raw class pixels and **99.91%** of the
+safety-relevant surface kinds, with zero hazard-flag differences, identical
+walkable/uncertain corridor states, and maximum corridor-ratio drift **0.00391**.
+The app loads both resident models on guarded NPU sessions; a warmed live frame
+measured **57.96 ms total**, including 6.21 ms detection and 14.96 ms
+segmentation. This is integration evidence, not mAP or field-safety validation.
 
 #### Correction: the AAR does bring backend libraries, transitively
 
@@ -742,11 +753,11 @@ cd apps/android && ./gradlew :probe:installDebug && adb shell am start -n com.dr
 adb logcat -d | grep -iE "onnxruntime|qnn" | grep -v DrishtiProbe
 ```
 
-`session.disable_cpu_ep_fallback = "1"` is set on the NPU rung in both the probe
-and `OrtYoloDetector`, so a silent CPU fallback is impossible. It creates for
-portable YOLO QDQ and throws for the current SegFormer graph. The honest claim
-is correspondingly split: **YOLO detection is on the Hexagon NPU;
-segmentation is on-device with a measured CPU fallback.**
+`session.disable_cpu_ep_fallback = "1"` is set on the NPU rung in the probe,
+`OrtYoloDetector`, and `SegFormerSegmenter`, so a silent CPU fallback is
+impossible. Both portable graphs create: **YOLO detection and SegFormer
+segmentation run entirely on the Hexagon NPU.** CPU remains an explicit,
+reported fallback if guarded session creation fails on another device.
 
 ---
 
@@ -1394,21 +1405,21 @@ Task cards: [A6](#a6--the-ondevicedetector-seam), [A7](#a7--the-accelerator-sche
 
 Go / no-go before sleeping.
 
-- [ ] `./gradlew assembleDebug` green
-- [ ] `./gradlew test` green, including the new golden-vector tests
-- [ ] **QAIRT obtained** and the v81 libraries staged in
-      `app/src/main/jniLibs/arm64-v8a/` ([§3.4](#34-the-qnn-backend-libraries-are-not-in-the-aar--verified))
-- [ ] `ADSP_LIBRARY_PATH` set before the first QNN session
-- [ ] `where adb` returns one authoritative copy and `adb version` agrees
-- [ ] `models/staging/MANIFEST.sha256` exists and lists `yolo11n_qnn.onnx`
-- [ ] `yolo11n.pt` digest matches `0EBBC80D…`
-- [ ] SegFormer w8a16 ONNX unzipped, `ade20k_config.json` beside it with 150 labels
-- [ ] Golden vectors committed under `app/src/test/resources/golden/`
+- [x] `./gradlew assembleDebug` green
+- [x] `./gradlew test` green, including the new golden-vector tests
+- [x] `qnn-runtime:2.42.0` resolved transitively with the v81 libraries; the
+      incompatible manually staged QAIRT runtime is not used (§3.5)
+- [x] `ADSP_LIBRARY_PATH` set before the first QNN session
+- [x] project-local `tools/android.ps1 adb` selects one authoritative SDK copy
+- [x] deployed YOLO and SegFormer SHA-256 values recorded in §3.5
+- [x] `yolo11n.pt` digest matches `0EBBC80D…`
+- [x] SegFormer w8a16 ONNX unzipped, `ade20k_config.json` beside it with 150 labels
+- [x] Golden vectors committed under `app/src/test/resources/golden/`
 - [ ] Coordinator starts and `/api/v1/health` answers (or explicitly cut)
 - [ ] Dashboard builds: `npm run build --workspace apps/dashboard`
 - [ ] Evidence log file created (Part 4)
 - [ ] Phone charger, **USB-C data cable** (not a charge-only cable), laptop charger packed
-- [ ] **GATE P0.8 passed** — probe reports NPU on the playground with the
+- [x] **GATE P0.8 passed** — probe reports NPU on the playground with the
       fallback guard on, and plausible boxes on the fixture image
 - [ ] Playground evidence pack captured and labelled **PLAYGROUND** (P0.8.5)
 - [ ] `git log --oneline -1` recorded — this commit is the Part 0 baseline
@@ -1493,6 +1504,13 @@ class 3), `wall` (0) and `ceiling` (5) land where a human would put them.
 > decision rule, and confirm that argmax over the class dimension reproduces the
 > Python `id2label` ordering on the same input. This is `ARCHITECTURE.md` §6.2
 > gate steps 1 and 2, completed on a laptop schedule rather than an event one.
+
+> **RESULT — passed on the 12 GB iQOO 15.** The output is
+> `[1,150,128,128]`; guarded HTP runs at 11.33 ms. The public indoor fixture in
+> `tools/check_segformer_fixture.py` measured 99.50% class argmax agreement and
+> 99.91% safety-surface agreement against CPU, with identical corridor threshold
+> states and no hazard-flag differences. This is an integration fixture, not a
+> substitute for the full indoor replay or field validation.
 
 ### P0.8.5 — Capture the evidence pack now
 

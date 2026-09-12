@@ -36,9 +36,9 @@ take precedence where available.
 | Stage | Resident? | Footprint | NPU latency |
 |---|---|---|---|
 | Detection — YOLO11n w8a16 QDQ | **Always** | 0 – 82 MB published | **3.30 ms measured, guarded HTP** |
-| Segmentation — SegFormer-B0 ADE20K w8a16 | **Always** | 13 – 217 MB published | **12.83 ms measured QNN + CPU fallback** |
+| Segmentation — SegFormer-B0 ADE20K w8a16 | **Always** | 13 – 217 MB published | **11.33 ms measured, guarded HTP** |
 | Track, spatial, risk, guidance, target memory | Always | < 20 MB, pure Kotlin | — |
-| **Walk loop total** | | **~300 – 450 MB** | Detector fully NPU; segmenter not yet fully NPU |
+| **Walk loop total** | | **~300 – 450 MB** | Both resident models fully NPU; **57.96 ms warmed live frame end to end** |
 | OCR — ML Kit | On demand | 150 – 250 MB peak | CPU |
 | Scene Mode VLM | On demand | 1.3 – 4.4 GB peak | **CPU, not NPU** |
 | Reasoning LLM | **Not on device** | — | — |
