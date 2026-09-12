@@ -274,6 +274,20 @@ private fun DiagRow(label: String, value: String, valueColor: androidx.compose.u
     }
 }
 
+/**
+ * Reason codes the guidance engine emits with `action = CLEAR` while it is still
+ * deciding (`AlertStateMachine`). The CLEAR is a SPEECH instruction — say
+ * nothing yet — and it is right about that. It is not a claim that the path is
+ * clear, and the banner must not read it as one: a low-vision user was shown the
+ * word WALKING in full green over a corridor the same frame had painted red,
+ * because the evidence had not yet persisted for two frames.
+ */
+private val UNSETTLED_REASONS = setOf("ALERT_PERSISTENCE_PENDING")
+
+private fun isUnsettled(s: WalkUiState): Boolean =
+    s.guidance?.action == GuidanceAction.CLEAR &&
+        s.guidance.reasonCode in UNSETTLED_REASONS
+
 private fun bannerWord(context: Context, s: WalkUiState): String {
     val res = when (s.mode) {
         WalkMode.SOS -> R.string.state_sos
@@ -283,13 +297,16 @@ private fun bannerWord(context: Context, s: WalkUiState): String {
         WalkMode.STARTING -> R.string.state_ready
         WalkMode.ERROR -> R.string.state_paused
         WalkMode.STOPPED -> R.string.state_ready
-        WalkMode.WALKING -> when (s.guidance?.action) {
-            GuidanceAction.STOP -> R.string.state_stop
-            GuidanceAction.MOVE_LEFT -> R.string.state_left
-            GuidanceAction.MOVE_RIGHT -> R.string.state_right
-            GuidanceAction.CAUTION -> R.string.state_caution
-            GuidanceAction.PAUSE_UNCLEAR -> R.string.state_paused
-            else -> R.string.state_walking
+        WalkMode.WALKING -> when {
+            isUnsettled(s) -> R.string.state_caution
+            else -> when (s.guidance?.action) {
+                GuidanceAction.STOP -> R.string.state_stop
+                GuidanceAction.MOVE_LEFT -> R.string.state_left
+                GuidanceAction.MOVE_RIGHT -> R.string.state_right
+                GuidanceAction.CAUTION -> R.string.state_caution
+                GuidanceAction.PAUSE_UNCLEAR -> R.string.state_paused
+                else -> R.string.state_walking
+            }
         }
     }
     return context.getString(res)
@@ -299,10 +316,13 @@ private fun bannerColor(s: WalkUiState) = when (s.mode) {
     WalkMode.SOS, WalkMode.ERROR -> DrishtiRed
     WalkMode.READING, WalkMode.DESCRIBING -> DrishtiWhite
     WalkMode.STARTING -> DrishtiWhite
-    else -> when (s.guidance?.action) {
-        GuidanceAction.STOP -> DrishtiRed
-        GuidanceAction.MOVE_LEFT, GuidanceAction.MOVE_RIGHT, GuidanceAction.CAUTION, GuidanceAction.PAUSE_UNCLEAR -> DrishtiYellow
-        else -> DrishtiGreen
+    else -> when {
+        isUnsettled(s) -> DrishtiYellow
+        else -> when (s.guidance?.action) {
+            GuidanceAction.STOP -> DrishtiRed
+            GuidanceAction.MOVE_LEFT, GuidanceAction.MOVE_RIGHT, GuidanceAction.CAUTION, GuidanceAction.PAUSE_UNCLEAR -> DrishtiYellow
+            else -> DrishtiGreen
+        }
     }
 }
 

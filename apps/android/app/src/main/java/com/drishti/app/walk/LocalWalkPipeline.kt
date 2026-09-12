@@ -64,7 +64,10 @@ class LocalWalkPipeline(
      */
     private val cpuDetectorFactory: (() -> OnDeviceDetector)? = null,
 ) {
-    private var lastSurfaces: SurfaceEvidence? = null
+    // The MAP is cached across stride frames, not the evidence derived from it.
+    // Surfaces change slowly; the detections that veto a walkable claim do not,
+    // so the evidence is rebuilt every frame from the newest boxes.
+    private var lastSegmentation: SegFormerSegmenter.SegmentationFrame? = null
     private var lastSegmentationMillis: Double? = null
     private val tracker = SessionTracker(
         iouThreshold = settings.trackIouThreshold,
@@ -158,7 +161,7 @@ class LocalWalkPipeline(
         // unavailable: every corridor then reads UNCERTAIN and the cascade
         // answers PAUSE_UNCLEAR instead of inventing a direction
         // (docs/SAFETY_RULES.md).
-        val surfaces = updateSurfaces(frame)
+        val surfaces = updateSurfaces(frame, outcome.detections.risk)
         val corridor = analyzeCorridors(tracked, settings, surfaces = surfaces)
         val spatialEnd = System.nanoTime()
 
@@ -260,6 +263,7 @@ class LocalWalkPipeline(
                 },
                 speak = stable.speak,
                 reasonCode = stable.reasonCode,
+                blockingLabel = stable.blockingLabel,
             ),
             targetTracking = targetTracking,
             timings = StageTimings(
@@ -278,30 +282,36 @@ class LocalWalkPipeline(
     }
 
     /**
-     * Re-segment on stride frames, otherwise reuse the last map. Returns null
-     * only when segmentation is genuinely unavailable — never a zeroed map,
-     * which would read downstream as "measured, and clear".
+     * Re-segment on stride frames, otherwise reuse the last map, and in both
+     * cases re-derive the corridor evidence from THIS frame's detections.
+     * Returns null only when segmentation is genuinely unavailable — never a
+     * zeroed map, which would read downstream as "measured, and clear".
      */
-    private fun updateSurfaces(frame: OrientedFrame): SurfaceEvidence? {
+    private fun updateSurfaces(
+        frame: OrientedFrame,
+        occluders: List<DetectionCandidate>,
+    ): SurfaceEvidence? {
         val active = segmenter ?: return null
-        val due = lastSurfaces == null || frame.frameId % segmentationStride == 0
-        if (!due) return lastSurfaces
-        return try {
-            val segmentation = active.segment(frame)
-            lastSegmentationMillis = segmentation.inferenceMillis
-            val letterbox = Letterbox(
-                frame.width,
-                frame.height,
-                segmentation.width * SEGMENTATION_OUTPUT_STRIDE,
-                segmentation.height * SEGMENTATION_OUTPUT_STRIDE,
-            )
-            SurfaceEvidenceBuilder.build(segmentation, letterbox, settings)
-                .also { lastSurfaces = it }
-        } catch (exc: Throwable) {
-            Log.e(TAG, "segmentation failed; corridors fall back to UNCERTAIN", exc)
-            lastSurfaces = null
-            null
+        val due = lastSegmentation == null || frame.frameId % segmentationStride == 0
+        if (due) {
+            try {
+                val segmentation = active.segment(frame)
+                lastSegmentationMillis = segmentation.inferenceMillis
+                lastSegmentation = segmentation
+            } catch (exc: Throwable) {
+                Log.e(TAG, "segmentation failed; corridors fall back to UNCERTAIN", exc)
+                lastSegmentation = null
+                return null
+            }
         }
+        val segmentation = lastSegmentation ?: return null
+        val letterbox = Letterbox(
+            frame.width,
+            frame.height,
+            segmentation.width * SEGMENTATION_OUTPUT_STRIDE,
+            segmentation.height * SEGMENTATION_OUTPUT_STRIDE,
+        )
+        return SurfaceEvidenceBuilder.build(segmentation, letterbox, settings, occluders)
     }
 
     fun close() {

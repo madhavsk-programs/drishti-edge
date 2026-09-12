@@ -27,6 +27,7 @@ import com.drishti.app.hazard.NearbyAdvisor
 import com.drishti.app.net.ApiResult
 import com.drishti.app.net.DrishtiApi
 import com.drishti.app.net.RiskLevel
+import com.drishti.app.net.StageTimings
 import com.drishti.app.net.TargetTrackingState
 import com.drishti.app.net.TargetTrackingTelemetry
 import com.drishti.app.net.StartWalkSessionRequest
@@ -145,6 +146,14 @@ class WalkController(
 
     private val pipeline = CameraFramePipeline(app)
     private val spatial = SpatialAudioEngine()
+
+    /** Debug-only, sentinel-gated capture of the frames the detector sees. */
+    private val frameRecorder = FrameRecorder(app)
+
+    private var cadenceFrames = 0
+    private var cadenceTotalMs = 0.0
+    private var cadenceDetectionMs = 0.0
+    private var cadenceSegmentationMs = 0.0
     private val gyro = GyroSteering(app)
     private val focus = AudioFocusManager(app)
     private val explore = ExploreController(pipeline, speech, strings)
@@ -396,6 +405,8 @@ class WalkController(
         val pipeline = localPipeline
         if (id == null || pipeline == null) { gate.finishRequestFailure(); return }
 
+        frameRecorder.record(frame)
+
         val response = inferenceLock.withLock {
             runCatching {
                 pipeline.process(
@@ -421,6 +432,7 @@ class WalkController(
                         ),
                 )
             }
+            logCadence(it.timings)
             pace(it.timings.totalMs, it.frameAgeMs)
             applyResponse(it)
         }.onFailure {
@@ -431,6 +443,38 @@ class WalkController(
             _state.value = _state.value.copy(message = strings.string(R.string.models_not_ready))
             pace(null, null)
         }
+    }
+
+    /**
+     * Rolling stage cost, every [CADENCE_LOG_FRAMES] frames.
+     *
+     * The status line shows the LAST frame's total, and segmentation only runs
+     * on every third one, so that number swings between a cheap frame and an
+     * expensive one and neither answers "how fast is the guidance loop". The
+     * mean over a window does, and it is the number to quote when someone says
+     * Walk Mode feels slow.
+     */
+    private fun logCadence(timings: StageTimings) {
+        cadenceFrames++
+        cadenceTotalMs += timings.totalMs
+        timings.detectionMs?.let { cadenceDetectionMs += it }
+        timings.segmentationMs?.let { cadenceSegmentationMs += it }
+        if (cadenceFrames < CADENCE_LOG_FRAMES) return
+        Log.i(
+            TAG,
+            "cadence over %d frames: total=%.1f ms avg (%.1f fps), detection=%.1f ms, segmentation=%.1f ms amortised"
+                .format(
+                    cadenceFrames,
+                    cadenceTotalMs / cadenceFrames,
+                    1000.0 / (cadenceTotalMs / cadenceFrames),
+                    cadenceDetectionMs / cadenceFrames,
+                    cadenceSegmentationMs / cadenceFrames,
+                ),
+        )
+        cadenceFrames = 0
+        cadenceTotalMs = 0.0
+        cadenceDetectionMs = 0.0
+        cadenceSegmentationMs = 0.0
     }
 
     private fun pace(totalMs: Double?, frameAgeMs: Double?) {
@@ -779,5 +823,8 @@ class WalkController(
     private fun parseInstant(value: String): Instant =
         runCatching { Instant.parse(value) }.getOrElse { Instant.now().plusSeconds(1) }
 
-    private companion object { const val TAG = "WalkController" }
+    private companion object {
+        const val TAG = "WalkController"
+        const val CADENCE_LOG_FRAMES = 30
+    }
 }

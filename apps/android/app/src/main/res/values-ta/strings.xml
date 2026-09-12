@@ -130,4 +130,45 @@
     <string name="target_arrived">அது உங்களுக்கு நேர் முன்னால் இருக்க வேண்டும்.</string>
     <string name="target_reacquire">நின்று மெதுவாகச் சுற்றிப் பாருங்கள்.</string>
     <string name="target_lost">அதைத் தொலைத்துவிட்டேன். நின்று மெதுவாகச் சுற்றிப் பாருங்கள்.</string>
+
+    <!-- Named-obstacle guidance: what is actually in the way. -->
+    <string name="guide_stop_named">நில்லுங்கள். நேராக முன்னால் %1$s உள்ளது.</string>
+    <string name="guide_caution_named">அருகில் %1$s உள்ளது.</string>
+    <string name="guide_move_left_named">முன்னால் %1$s உள்ளது. சிறிது இடதுபுறம் நகருங்கள்.</string>
+    <string name="guide_move_right_named">முன்னால் %1$s உள்ளது. சிறிது வலதுபுறம் நகருங்கள்.</string>
+    <string name="guide_all_blocked_named">நில்லுங்கள். முன்னால் %1$s, எல்லாப் பக்கமும் அடைபட்டுள்ளது.</string>
+    <string name="reason_obstacle_ahead_named">நேராக முன்னால் %1$s</string>
+    <string name="reason_obstacle_nearby_named">அருகில் %1$s</string>
+    <string name="reason_centre_blocked_side_named">முன்னால் %1$s, பக்கவாட்டில் வழி உள்ளது</string>
+    <string name="reason_centre_blocked_unclear_named">முன்னால் %1$s, திசை தெளிவில்லை</string>
+    <string name="reason_all_blocked_named">முன்னால் %1$s, எல்லாப் பக்கமும் அடைபட்டுள்ளது</string>
+
+    <!-- Spoken names for the audited detector labels. -->
+    <string name="obstacle_person">ஒரு நபர்</string>
+    <string name="obstacle_chair">ஒரு நாற்காலி</string>
+    <string name="obstacle_bag">ஒரு பை</string>
+    <string name="obstacle_desk">ஒரு மேசை</string>
+    <string name="obstacle_bicycle">ஒரு மிதிவண்டி</string>
+    <string name="obstacle_motorcycle">ஒரு இருசக்கர வாகனம்</string>
+    <string name="obstacle_car">ஒரு கார்</string>
+    <string name="obstacle_bus">ஒரு பேருந்து</string>
+    <string name="obstacle_truck">ஒரு லாரி</string>
+    <string name="obstacle_train">ஒரு ரயில்</string>
+    <string name="obstacle_dog">ஒரு நாய்</string>
+    <string name="obstacle_fire_hydrant">ஒரு நீர்க்குழாய்</string>
+    <string name="obstacle_stop_sign">ஒரு பலகை</string>
+    <string name="obstacle_parking_meter">ஒரு கம்பம்</string>
+    <string name="obstacle_traffic_light">ஒரு சிக்னல் கம்பம்</string>
+    <string name="obstacle_bench">ஒரு பெஞ்ச்</string>
+    <string name="obstacle_door">ஒரு கதவு</string>
+    <string name="obstacle_suitcase">ஒரு பெட்டி</string>
+    <string name="obstacle_umbrella">ஒரு குடை</string>
+    <string name="obstacle_potted_plant">ஒரு தொட்டிச்செடி</string>
+    <string name="obstacle_couch">ஒரு சோபா</string>
+    <string name="obstacle_bed">ஒரு படுக்கை</string>
+    <string name="obstacle_tv">ஒரு திரை</string>
+    <string name="obstacle_refrigerator">ஒரு குளிர்சாதனப்பெட்டி</string>
+    <string name="obstacle_sink">ஒரு தொட்டி</string>
+    <string name="obstacle_toilet">ஒரு கழிப்பறை</string>
+    <string name="reason_checking">முன்னால் என்ன உள்ளது எனப் பார்க்கிறது</string>
 </resources>

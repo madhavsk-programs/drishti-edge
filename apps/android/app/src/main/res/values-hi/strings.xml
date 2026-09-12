@@ -131,4 +131,45 @@
     <string name="target_arrived">वह ठीक आपके सामने होना चाहिए।</string>
     <string name="target_reacquire">रुकें और धीरे-धीरे चारों ओर देखें।</string>
     <string name="target_lost">वह खो गया। रुकें और धीरे-धीरे चारों ओर देखें।</string>
+
+    <!-- Named-obstacle guidance: what is actually in the way. -->
+    <string name="guide_stop_named">रुकें। सीधे सामने %1$s है।</string>
+    <string name="guide_caution_named">पास में %1$s है।</string>
+    <string name="guide_move_left_named">सामने %1$s है। थोड़ा बाएँ चलें।</string>
+    <string name="guide_move_right_named">सामने %1$s है। थोड़ा दाएँ चलें।</string>
+    <string name="guide_all_blocked_named">रुकें। सामने %1$s है, हर तरफ़ रास्ता बंद है।</string>
+    <string name="reason_obstacle_ahead_named">सीधे सामने %1$s</string>
+    <string name="reason_obstacle_nearby_named">पास में %1$s</string>
+    <string name="reason_centre_blocked_side_named">सामने %1$s, किनारे से रास्ता साफ़</string>
+    <string name="reason_centre_blocked_unclear_named">सामने %1$s, दिशा स्पष्ट नहीं</string>
+    <string name="reason_all_blocked_named">सामने %1$s, हर तरफ़ रास्ता बंद</string>
+
+    <!-- Spoken names for the audited detector labels. -->
+    <string name="obstacle_person">एक व्यक्ति</string>
+    <string name="obstacle_chair">एक कुर्सी</string>
+    <string name="obstacle_bag">एक बैग</string>
+    <string name="obstacle_desk">एक मेज़</string>
+    <string name="obstacle_bicycle">एक साइकिल</string>
+    <string name="obstacle_motorcycle">एक मोटरसाइकिल</string>
+    <string name="obstacle_car">एक कार</string>
+    <string name="obstacle_bus">एक बस</string>
+    <string name="obstacle_truck">एक ट्रक</string>
+    <string name="obstacle_train">एक ट्रेन</string>
+    <string name="obstacle_dog">एक कुत्ता</string>
+    <string name="obstacle_fire_hydrant">एक हाइड्रेंट</string>
+    <string name="obstacle_stop_sign">एक साइन बोर्ड</string>
+    <string name="obstacle_parking_meter">एक खंभा</string>
+    <string name="obstacle_traffic_light">एक ट्रैफ़िक खंभा</string>
+    <string name="obstacle_bench">एक बेंच</string>
+    <string name="obstacle_door">एक दरवाज़ा</string>
+    <string name="obstacle_suitcase">एक सूटकेस</string>
+    <string name="obstacle_umbrella">एक छाता</string>
+    <string name="obstacle_potted_plant">एक गमला</string>
+    <string name="obstacle_couch">एक सोफ़ा</string>
+    <string name="obstacle_bed">एक बिस्तर</string>
+    <string name="obstacle_tv">एक स्क्रीन</string>
+    <string name="obstacle_refrigerator">एक फ़्रिज</string>
+    <string name="obstacle_sink">एक सिंक</string>
+    <string name="obstacle_toilet">एक शौचालय</string>
+    <string name="reason_checking">आगे क्या है, जाँच रहे हैं</string>
 </resources>

@@ -101,7 +101,9 @@ internal fun obstacleFactFor(
         action = guidance.action.name,
         riskLevel = guidance.level.name,
         reasonCode = guidance.reasonCode,
-        label = obstacle?.label,
+        // The cascade's own culprit when it named one; the highest-scoring
+        // detection is only a guess at what the verdict was about.
+        label = guidance.blockingLabel ?: obstacle?.label,
         direction = obstacle?.direction?.name,
     )
 }

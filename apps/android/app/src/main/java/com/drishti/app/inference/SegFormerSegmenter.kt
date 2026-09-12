@@ -40,8 +40,12 @@ class SegFormerSegmenter private constructor(
     private val idToLabel: Map<Int, String>,
 ) : AutoCloseable {
 
-    /** Per-class-id surface kind, resolved once at load rather than per frame. */
+    /** Per-class-id lookups, resolved once at load rather than per frame. */
     private val kindByClassId: IntArray = IntArray(MAX_CLASSES) { SurfaceKind.UNKNOWN.ordinal }
+    // Arrays rather than Sets: these are read once per output pixel, and a
+    // `Set<Int>.contains` there is an autoboxed hash lookup 16k times a frame.
+    private val hazardByClassId = BooleanArray(MAX_CLASSES)
+    private val wallByClassId = BooleanArray(MAX_CLASSES)
     private val hazardClassIds: Set<Int>
     private val wallClassIds: Set<Int>
 
@@ -54,6 +58,8 @@ class SegFormerSegmenter private constructor(
         }
         hazardClassIds = Surfaces.classIdsMatching(idToLabel, Surfaces.HAZARD_SURFACE_TOKENS)
         wallClassIds = Surfaces.classIdsMatching(idToLabel, Surfaces.WALL_TOKENS)
+        for (id in hazardClassIds) if (id in 0 until MAX_CLASSES) hazardByClassId[id] = true
+        for (id in wallClassIds) if (id in 0 until MAX_CLASSES) wallByClassId[id] = true
     }
 
     /**
@@ -92,28 +98,23 @@ class SegFormerSegmenter private constructor(
                 flat.get(logits)
             }
         }
-        val elapsed = (System.nanoTime() - started) / 1_000_000.0
-
-        val pixels = outWidth * outHeight
-        val classId = IntArray(pixels)
+        val classId = IntArray(outWidth * outHeight)
+        argmaxChannelMajor(logits, classId, classCount)
+        val pixels = classId.size
         val kind = IntArray(pixels)
         val hazard = BooleanArray(pixels)
         val wall = BooleanArray(pixels)
         for (p in 0 until pixels) {
-            var best = 0
-            var bestScore = logits[p]
-            for (c in 1 until classCount) {
-                val score = logits[c * pixels + p]
-                if (score > bestScore) {
-                    bestScore = score
-                    best = c
-                }
-            }
-            classId[p] = best
+            val best = classId[p]
             kind[p] = if (best < MAX_CLASSES) kindByClassId[best] else SurfaceKind.UNKNOWN.ordinal
-            hazard[p] = best in hazardClassIds
-            wall[p] = best in wallClassIds
+            hazard[p] = hazardByClassId[best]
+            wall[p] = wallByClassId[best]
         }
+        // Measured AFTER the argmax, not before it. The decode is part of what a
+        // segmentation costs the guidance cadence, and reporting only the
+        // session run made ~2.5M float comparisons per frame invisible in the
+        // diagnostics panel while they showed up in `totalMs` as a mystery.
+        val elapsed = (System.nanoTime() - started) / 1_000_000.0
 
         return SegmentationFrame(
             width = outWidth,
@@ -151,6 +152,36 @@ class SegFormerSegmenter private constructor(
     }
 
     companion object {
+
+        /**
+         * Per-pixel argmax over a [1, C, H, W] logit tensor, read in CLASS order.
+         *
+         * The obvious loop — for each pixel, walk the classes — strides through
+         * memory by one full H*W plane per step. At 128x128x150 that is a 64 KB
+         * jump per comparison, so every one of the ~2.5M reads misses cache, and
+         * on the phone this cost more than the network inference it decodes.
+         * Sweeping one class plane at a time over running best/score arrays does
+         * exactly the same comparisons against sequential memory.
+         *
+         * Internal so [SegFormerArgmaxTest] can hold it to the naive result.
+         */
+        internal fun argmaxChannelMajor(logits: FloatArray, out: IntArray, classCount: Int) {
+            val pixels = out.size
+            val best = FloatArray(pixels)
+            System.arraycopy(logits, 0, best, 0, pixels)
+            java.util.Arrays.fill(out, 0)
+            for (c in 1 until classCount) {
+                val base = c * pixels
+                for (p in 0 until pixels) {
+                    val score = logits[base + p]
+                    if (score > best[p]) {
+                        best[p] = score
+                        out[p] = c
+                    }
+                }
+            }
+        }
+
         const val MODEL = "segformer_float.onnx"
         const val LABELS = "ade20k_config.json"
         private const val MAX_CLASSES = 256

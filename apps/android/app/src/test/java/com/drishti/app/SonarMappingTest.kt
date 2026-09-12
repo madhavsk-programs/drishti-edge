@@ -15,6 +15,21 @@ import org.junit.Test
 
 class SonarMappingTest {
 
+    /**
+     * `proximityScore` is filled in from the band rather than left null.
+     * `LocalWalkPipeline` always sets both from the same
+     * `estimateRelativeProximity` call, so a detection carrying a band and no
+     * score is not a state the sonar can be handed in production — and the
+     * mapping now reads the score, not just the band.
+     */
+    private fun scoreFor(band: ProximityBand) = when (band) {
+        ProximityBand.FAR -> 0.20
+        ProximityBand.MEDIUM -> 0.45
+        ProximityBand.NEAR -> 0.65
+        ProximityBand.IMMEDIATE -> 0.90
+        ProximityBand.UNKNOWN -> 0.0
+    }
+
     private fun det(
         cx: Double,
         risk: RiskLevel,
@@ -28,6 +43,7 @@ class SonarMappingTest {
         anchor = NormalizedPoint(cx, 0.6),
         direction = Direction.CENTRE,
         proximity = proximity,
+        proximityScore = scoreFor(proximity),
         approachState = approach,
         pathOverlap = 0.5,
         riskScore = score,
@@ -43,28 +59,39 @@ class SonarMappingTest {
     }
 
     @Test fun `closer objects raise pitch`() {
-        val far = SonarMapping.voicesFrom(listOf(det(0.5, RiskLevel.WARN, 0.6, ProximityBand.FAR))).single()
-        val near = SonarMapping.voicesFrom(listOf(det(0.5, RiskLevel.WARN, 0.6, ProximityBand.IMMEDIATE))).single()
-        assertTrue(near.freqHz > far.freqHz)
+        // MEDIUM rather than FAR: FAR is below the audible gate by design, and
+        // `SonarRankingTest` pins that separately.
+        val mid = SonarMapping.voicesFrom(
+            listOf(det(0.5, RiskLevel.WARN, 0.6, ProximityBand.MEDIUM)),
+        ).single()
+        val near = SonarMapping.voicesFrom(
+            listOf(det(0.5, RiskLevel.WARN, 0.6, ProximityBand.IMMEDIATE)),
+        ).single()
+        assertTrue(near.freqHz > mid.freqHz)
     }
 
     @Test fun `clear detections are silent and only top two sound`() {
         val voices = SonarMapping.voicesFrom(
             listOf(
-                det(0.2, RiskLevel.CLEAR, 0.9),
-                det(0.3, RiskLevel.WARN, 0.4),
-                det(0.4, RiskLevel.HIGH, 0.8),
-                det(0.6, RiskLevel.WATCH, 0.6),
+                det(0.2, RiskLevel.CLEAR, 0.9, ProximityBand.IMMEDIATE),
+                det(0.3, RiskLevel.WARN, 0.4, ProximityBand.MEDIUM),
+                det(0.4, RiskLevel.HIGH, 0.8, ProximityBand.NEAR),
+                det(0.6, RiskLevel.WATCH, 0.6, ProximityBand.IMMEDIATE),
             ),
         )
         assertEquals(2, voices.size)
-        // highest score first → HIGH(0.8) then WATCH(0.6)
-        assertTrue(voices[0].gain >= voices[1].gain)
+        // Nearest first, so IMMEDIATE/WATCH takes the lead voice over NEAR/HIGH
+        // even though HIGH scores higher — distance is what the sonar is for.
+        assertTrue(voices[0].pan > 0f)
     }
 
     @Test fun `approaching adds an urgency lift`() {
-        val still = SonarMapping.voicesFrom(listOf(det(0.5, RiskLevel.WARN, 0.6, ProximityBand.MEDIUM, ApproachState.STATIONARY))).single()
-        val coming = SonarMapping.voicesFrom(listOf(det(0.5, RiskLevel.WARN, 0.6, ProximityBand.MEDIUM, ApproachState.APPROACHING))).single()
+        val still = SonarMapping.voicesFrom(
+            listOf(det(0.5, RiskLevel.WARN, 0.6, ProximityBand.MEDIUM, ApproachState.STATIONARY)),
+        ).single()
+        val coming = SonarMapping.voicesFrom(
+            listOf(det(0.5, RiskLevel.WARN, 0.6, ProximityBand.MEDIUM, ApproachState.APPROACHING)),
+        ).single()
         assertEquals(80f, coming.freqHz - still.freqHz, 0.01f)
     }
 }

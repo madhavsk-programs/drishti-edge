@@ -149,4 +149,45 @@
     <string name="target_arrived">You should be right in front of it.</string>
     <string name="target_reacquire">Stop and scan around slowly.</string>
     <string name="target_lost">I\'ve lost it. Stop and scan around slowly.</string>
+
+    <!-- Named-obstacle guidance: what is actually in the way. -->
+    <string name="guide_stop_named">Stop. %1$s directly ahead.</string>
+    <string name="guide_caution_named">%1$s nearby.</string>
+    <string name="guide_move_left_named">%1$s ahead. Move slightly left.</string>
+    <string name="guide_move_right_named">%1$s ahead. Move slightly right.</string>
+    <string name="guide_all_blocked_named">Stop. %1$s ahead, path blocked on all sides.</string>
+    <string name="reason_obstacle_ahead_named">%1$s directly ahead</string>
+    <string name="reason_obstacle_nearby_named">%1$s nearby</string>
+    <string name="reason_centre_blocked_side_named">%1$s ahead, side is clearer</string>
+    <string name="reason_centre_blocked_unclear_named">%1$s ahead, direction unclear</string>
+    <string name="reason_all_blocked_named">%1$s ahead, blocked on every side</string>
+
+    <!-- Spoken names for the audited detector labels. -->
+    <string name="obstacle_person">a person</string>
+    <string name="obstacle_chair">a chair</string>
+    <string name="obstacle_bag">a bag</string>
+    <string name="obstacle_desk">a table</string>
+    <string name="obstacle_bicycle">a bicycle</string>
+    <string name="obstacle_motorcycle">a motorcycle</string>
+    <string name="obstacle_car">a car</string>
+    <string name="obstacle_bus">a bus</string>
+    <string name="obstacle_truck">a truck</string>
+    <string name="obstacle_train">a train</string>
+    <string name="obstacle_dog">a dog</string>
+    <string name="obstacle_fire_hydrant">a hydrant</string>
+    <string name="obstacle_stop_sign">a sign post</string>
+    <string name="obstacle_parking_meter">a post</string>
+    <string name="obstacle_traffic_light">a traffic pole</string>
+    <string name="obstacle_bench">a bench</string>
+    <string name="obstacle_door">a door</string>
+    <string name="obstacle_suitcase">a suitcase</string>
+    <string name="obstacle_umbrella">an umbrella</string>
+    <string name="obstacle_potted_plant">a plant</string>
+    <string name="obstacle_couch">a sofa</string>
+    <string name="obstacle_bed">a bed</string>
+    <string name="obstacle_tv">a screen</string>
+    <string name="obstacle_refrigerator">a fridge</string>
+    <string name="obstacle_sink">a sink</string>
+    <string name="obstacle_toilet">a toilet</string>
+    <string name="reason_checking">Checking what is ahead</string>
 </resources>

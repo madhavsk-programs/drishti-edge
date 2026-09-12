@@ -5,6 +5,7 @@ import com.drishti.app.inference.Letterbox
 import com.drishti.app.inference.SegFormerSegmenter
 import com.drishti.app.net.CorridorChoice
 import com.drishti.app.net.SurfaceKind
+import com.drishti.app.perception.DetectionCandidate
 
 /**
  * Turn a segmentation frame into per-corridor surface evidence
@@ -19,16 +20,23 @@ object SurfaceEvidenceBuilder {
 
     private val ORDER = listOf(CorridorChoice.LEFT, CorridorChoice.CENTRE, CorridorChoice.RIGHT)
 
+    /**
+     * @param occluders detections from THIS frame. Pixels inside one are not
+     *   counted as walkable floor no matter what the segmenter called them —
+     *   see [occlusionMask].
+     */
     fun build(
         segmentation: SegFormerSegmenter.SegmentationFrame,
         letterbox: Letterbox,
         settings: PipelineSettings,
+        occluders: List<DetectionCandidate> = emptyList(),
     ): SurfaceEvidence {
         val polygons = corridorPolygons(settings)
         // The output map is a fixed fraction of the input tensor (128 for 512),
         // so tensor pixels scale straight down to map pixels.
         val scaleX = segmentation.width.toDouble() / letterbox.targetWidth
         val scaleY = segmentation.height.toDouble() / letterbox.targetHeight
+        val occluded = occlusionMask(occluders, segmentation, letterbox, scaleX, scaleY)
 
         val walkable = HashMap<CorridorChoice, Double>()
         val road = HashMap<CorridorChoice, Double>()
@@ -38,12 +46,9 @@ object SurfaceEvidenceBuilder {
         val stairs = HashMap<CorridorChoice, Double>()
         val floorExtent = HashMap<CorridorChoice, Double>()
 
+        val masks = corridorMasks(polygons, letterbox, segmentation, scaleX, scaleY)
         for (choice in ORDER) {
-            val mapPolygon = polygons.getValue(choice).map { (nx, ny) ->
-                val (tx, ty) = letterbox.fromOrientedNormalized(nx, ny)
-                Pair(tx * scaleX, ty * scaleY)
-            }
-            val mask = rasterize(mapPolygon, segmentation.width, segmentation.height)
+            val mask = masks.getValue(choice)
 
             var total = 0
             var walkableCount = 0
@@ -55,7 +60,7 @@ object SurfaceEvidenceBuilder {
             for (p in mask.indices) {
                 if (!mask[p]) continue
                 total++
-                when (segmentation.kind[p]) {
+                when (kindAt(segmentation, occluded, p)) {
                     SurfaceKind.WALKABLE.ordinal -> walkableCount++
                     SurfaceKind.ROAD.ordinal -> roadCount++
                     SurfaceKind.NON_WALKABLE.ordinal -> nonWalkableCount++
@@ -71,7 +76,7 @@ object SurfaceEvidenceBuilder {
             unknown[choice] = unknownCount / denominator
             wall[choice] = wallCount / denominator
             stairs[choice] = stairsCount / denominator
-            floorExtent[choice] = floorExtent(mask, segmentation)
+            floorExtent[choice] = floorExtent(mask, segmentation, occluded)
         }
 
         return SurfaceEvidence(
@@ -106,6 +111,7 @@ object SurfaceEvidenceBuilder {
     private fun floorExtent(
         mask: BooleanArray,
         segmentation: SegFormerSegmenter.SegmentationFrame,
+        occluded: BooleanArray?,
     ): Double {
         val width = segmentation.width
         val height = segmentation.height
@@ -138,7 +144,11 @@ object SurfaceEvidenceBuilder {
             var run = 0
             for (y in bottom downTo top) {
                 val index = y * width + x
-                if (!mask[index] || segmentation.kind[index] != SurfaceKind.WALKABLE.ordinal) break
+                if (!mask[index] ||
+                    kindAt(segmentation, occluded, index) != SurfaceKind.WALKABLE.ordinal
+                ) {
+                    break
+                }
                 run++
             }
             extents.add(run.toDouble() / spans[x])
@@ -155,6 +165,113 @@ object SurfaceEvidenceBuilder {
 
     /** Share of the corridor's depth a column must span to be measured. */
     internal const val MIN_COLUMN_SPAN_RATIO = 0.80
+
+    /** The segmenter's answer, downgraded where a detection stands in the way. */
+    private fun kindAt(
+        segmentation: SegFormerSegmenter.SegmentationFrame,
+        occluded: BooleanArray?,
+        index: Int,
+    ): Int {
+        val kind = segmentation.kind[index]
+        if (occluded == null || !occluded[index]) return kind
+        // Only the walkable claim is withdrawn. A detection is evidence that
+        // something is THERE, not evidence about what the surface behind it is,
+        // so the honest downgrade is to UNKNOWN rather than to NON_WALKABLE.
+        return if (kind == SurfaceKind.WALKABLE.ordinal) SurfaceKind.UNKNOWN.ordinal else kind
+    }
+
+    /**
+     * Map pixels covered by a detection box.
+     *
+     * Detection and segmentation disagree about surfaces, and when they do the
+     * detector is the one holding positive evidence. A SegFormer-B0 argmax calls
+     * a wooden desktop viewed along its length `floor` — measured on a real Walk
+     * Mode frame, 99.7% of the centre corridor came back WALKABLE with a desk
+     * filling it, floor extent 1.00, and the cascade answered PATH_CLEAR. YOLO
+     * saw the same desk as `dining table`. Nothing in the audited risk-label set
+     * is a surface a person can walk on, so a box from it withdraws the walkable
+     * claim underneath.
+     *
+     * Boxes are rectangles and a standing person's box contains the floor around
+     * their legs, which is why this downgrades rather than blocks: the floor
+     * ahead simply stops being CLAIMED from the obstacle onward, which is what
+     * the free-space extent is supposed to measure in the first place.
+     */
+    private fun occlusionMask(
+        occluders: List<DetectionCandidate>,
+        segmentation: SegFormerSegmenter.SegmentationFrame,
+        letterbox: Letterbox,
+        scaleX: Double,
+        scaleY: Double,
+    ): BooleanArray? {
+        if (occluders.isEmpty()) return null
+        val width = segmentation.width
+        val height = segmentation.height
+        val mask = BooleanArray(width * height)
+        for (box in occluders) {
+            val (tx1, ty1) = letterbox.fromOrientedNormalized(box.x1, box.y1)
+            val (tx2, ty2) = letterbox.fromOrientedNormalized(box.x2, box.y2)
+            val x1 = (tx1 * scaleX).toInt().coerceIn(0, width - 1)
+            val x2 = (tx2 * scaleX).toInt().coerceIn(0, width - 1)
+            val y1 = (ty1 * scaleY).toInt().coerceIn(0, height - 1)
+            val y2 = (ty2 * scaleY).toInt().coerceIn(0, height - 1)
+            for (y in y1..y2) {
+                val row = y * width
+                for (x in x1..x2) mask[row + x] = true
+            }
+        }
+        return mask
+    }
+
+    /**
+     * Corridor masks for one map geometry, rasterized once and reused.
+     *
+     * The corridor polygons are fixed by [PipelineSettings] and the map size is
+     * fixed by the model, so these masks are the same every frame. Surface
+     * evidence is now rebuilt on EVERY frame — the detections that veto a
+     * walkable claim change faster than the segmentation stride — and
+     * re-rasterizing three quads over a 128x128 map each time would have made
+     * that rebuild cost more than the thing it is correcting.
+     */
+    @Volatile
+    private var cachedMasks: Pair<MaskKey, Map<CorridorChoice, BooleanArray>>? = null
+
+    private data class MaskKey(
+        val width: Int,
+        val height: Int,
+        val scaledWidth: Int,
+        val scaledHeight: Int,
+        val padX: Int,
+        val padY: Int,
+        val horizonY: Double,
+        val topHalfWidth: Double,
+        val bottomHalfWidth: Double,
+    )
+
+    private fun corridorMasks(
+        polygons: Map<CorridorChoice, List<Pair<Double, Double>>>,
+        letterbox: Letterbox,
+        segmentation: SegFormerSegmenter.SegmentationFrame,
+        scaleX: Double,
+        scaleY: Double,
+    ): Map<CorridorChoice, BooleanArray> {
+        val first = polygons.getValue(CorridorChoice.CENTRE).first()
+        val key = MaskKey(
+            segmentation.width, segmentation.height,
+            letterbox.scaledWidth, letterbox.scaledHeight, letterbox.padX, letterbox.padY,
+            first.second, polygons.getValue(CorridorChoice.LEFT).first().first, first.first,
+        )
+        cachedMasks?.let { (cachedKey, masks) -> if (cachedKey == key) return masks }
+        val built = ORDER.associateWith { choice ->
+            val mapPolygon = polygons.getValue(choice).map { (nx, ny) ->
+                val (tx, ty) = letterbox.fromOrientedNormalized(nx, ny)
+                Pair(tx * scaleX, ty * scaleY)
+            }
+            rasterize(mapPolygon, segmentation.width, segmentation.height)
+        }
+        cachedMasks = key to built
+        return built
+    }
 
     /** Convex polygon fill; the corridor shapes are always convex quads. */
     private fun rasterize(polygon: List<Pair<Double, Double>>, width: Int, height: Int): BooleanArray {

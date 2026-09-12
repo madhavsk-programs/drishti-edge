@@ -104,7 +104,7 @@ class OrtYoloDetector private constructor(
             detections = rawDetections,
             width = 1,
             height = 1,
-            confidenceThreshold = settings.detectorConfidenceThreshold,
+            confidenceThreshold = settings.riskConfidenceThreshold,
             allowedLabels = CANONICAL_LABELS,
             applyAliases = true,
         )

@@ -246,6 +246,8 @@ data class GuidanceContract(
     val hapticPattern: HapticPattern,
     val speak: Boolean,
     val reasonCode: String,
+    /** Canonical label of the obstacle the verdict is about, when there is one. */
+    val blockingLabel: String? = null,
 )
 
 @Serializable

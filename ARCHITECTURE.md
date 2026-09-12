@@ -1091,6 +1091,54 @@ ground at the user's feet, so a walkable *ratio* stays high with an obstacle
 filling everything above ankle height. Green has to mean floor continuing ahead,
 not floor somewhere in the wedge.
 
+### 12.2.2 When detection and segmentation disagree
+
+A SegFormer-B0 argmax calls a wooden desktop viewed along its length `floor`.
+Measured on a captured Walk Mode frame the centre corridor came back 82%
+WALKABLE with a desk filling it and a floor extent of 1.00. YOLO saw the same
+desk as `dining table`. The two models disagree about the same pixels, and the
+detector is the one holding positive evidence.
+
+So pixels under a risk-view detection box no longer count as walkable floor.
+Nothing in the audited label set is a surface a person can walk on. The downgrade
+is to `UNKNOWN`, not `NON_WALKABLE`: a box says something is THERE, not what the
+surface behind it is, and boxes are rectangles — a standing person's box contains
+the floor around their legs. The effect is that the floor ahead stops being
+*claimed* from the obstacle onward, which is what the free-space extent is
+supposed to measure anyway.
+
+Surface evidence is therefore rebuilt on every frame while the segmentation map
+itself is still cached across the stride: surfaces change slowly, the boxes in
+front of them do not.
+
+### 12.2.3 Two detector gates, two costs of error
+
+`detector_confidence_threshold` 0.45 gates the Find/landmark view, where a false
+positive sends someone walking towards a chair that is not there.
+`risk_confidence_threshold` 0.35 gates the safety view, where a miss is a
+collision and a false positive is a needless pause — and where corridor cost
+already multiplies by confidence, so a marginal box contributes marginally.
+
+The split is not a preference. On real frames YOLO11n scored the desk the user
+was standing at as `dining table` 0.36–0.45, straddling the old single gate,
+which is precisely why the desk was sometimes seen and sometimes not. 0.35 is the
+decoder's own floor, so nothing below it exists to admit.
+
+### 12.2.4 Condemning an escape route costs more than flagging the path
+
+`risk_side_block_threshold` 0.55 sits above `risk_centre_block_threshold` 0.40.
+Calling the centre blocked costs a pause; calling a side blocked removes an
+escape route, and once all three are gone the only verdict left is `STOP`.
+Corridor cost compounds as a noisy-OR, so moderate contributions add up fast: on
+a captured frame a chair at 0.227, a person at 0.199 and a surface cost of 0.178
+combined to 0.491 on a left corridor that segmentation still read as 68% walkable
+with 64% clear floor ahead. At a shared gate that frame said "path blocked on
+every side" with a clear route visible in it; it now says `MOVE_LEFT`.
+
+The wider gate is bought from segmentation being able to show a side is open, so
+when surfaces are absent it narrows back to the centre's — the same reason the
+free-space rule is disabled in that case.
+
 ### 12.3 Why the cascade, and why uncertainty is not danger
 
 Rules 1–3 are *evidence-specific* and bypass ordinary scoring because an

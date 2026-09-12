@@ -11,7 +11,24 @@ package com.drishti.app.config
  */
 data class PipelineSettings(
     // Detector
+    /**
+     * Gate for the FIND/landmark view. A false positive here sends a user
+     * walking towards a chair that is not there, so it stays strict.
+     */
     val detectorConfidenceThreshold: Double = 0.45,
+    /**
+     * Gate for the SAFETY view, deliberately lower than the Find gate: the two
+     * views have opposite error costs. A miss here is a collision; a false
+     * positive is a needless pause, and the corridor cost already multiplies by
+     * confidence, so a marginal box contributes marginally.
+     *
+     * Measured on real Walk Mode frames, YOLO11n scored the desk the user was
+     * standing at as `dining table` 0.36–0.45 — straddling the old single 0.45
+     * gate, which is exactly why the desk was sometimes seen and sometimes not.
+     * 0.35 is the detector's own decode floor, so nothing below it exists to
+     * admit anyway.
+     */
+    val riskConfidenceThreshold: Double = 0.35,
     val detectorImageSize: Int = 640,
 
     // Tracking
@@ -67,7 +84,25 @@ data class PipelineSettings(
     val riskWeightConfidence: Double = 0.10,
 
     val riskCentreBlockThreshold: Double = 0.40,
-    val riskSideBlockThreshold: Double = 0.40,
+    /**
+     * Deliberately higher than [riskCentreBlockThreshold]: the two answer
+     * different questions and the errors cost different things. Calling the
+     * centre blocked costs a pause. Calling a SIDE blocked removes an escape
+     * route, and once all three are gone the only verdict left is STOP — so a
+     * side needs more evidence against it than the path ahead does.
+     *
+     * Corridor cost compounds as a noisy-OR, so several moderate contributions
+     * add up quickly. Measured on a real Walk Mode frame, a chair at 0.227, a
+     * person at 0.199 and a surface cost of 0.178 combined to 0.491 on a left
+     * corridor that segmentation still read as 68% walkable with 64% clear floor
+     * running ahead. At a shared 0.40 gate that frame said "path blocked on
+     * every side" while a clear route was visible in it.
+     *
+     * This gate only decides whether a side is DISQUALIFIED. A side still has to
+     * pass the walkable / free-extent / wall-ratio test before the cascade will
+     * steer anyone into it.
+     */
+    val riskSideBlockThreshold: Double = 0.55,
     val riskCriticalPathOverlap: Double = 0.60,
     val riskCriticalProximity: Double = 0.70,
     val riskCriticalApproach: Double = 0.15,
@@ -103,6 +138,12 @@ data class PipelineSettings(
         }
         require(freespaceDeadEndMax <= freespaceBlockedMax) {
             "freespaceDeadEndMax must not exceed freespaceBlockedMax"
+        }
+        require(riskConfidenceThreshold <= detectorConfidenceThreshold) {
+            "The safety view must not be stricter than the Find view"
+        }
+        require(riskSideBlockThreshold >= riskCentreBlockThreshold) {
+            "An escape route must not be condemned on less evidence than the path ahead"
         }
     }
 

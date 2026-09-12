@@ -38,6 +38,14 @@ data class ProposedDecision(
     val preferredCorridor: CorridorChoice,
     val evidenceScore: Double = 0.0,
     val criticalTrackIds: Set<Int> = emptySet(),
+    /**
+     * Canonical label of the obstacle this decision is ABOUT, when one object
+     * is responsible for it. "Stop" tells a blind user to halt; "stop, chair
+     * directly ahead" tells them what they are about to walk into and lets them
+     * reach for it, step around it, or recognise the room. Null for verdicts
+     * that are not about a single object — a wall, stairs, an uncertain surface.
+     */
+    val blockingLabel: String? = null,
 )
 
 fun selectAction(
@@ -59,6 +67,10 @@ fun selectAction(
             preferredCorridor = CorridorChoice.NONE,
             evidenceScore = highestScore,
             criticalTrackIds = criticalVehicles,
+            blockingLabel = assessments
+                .filter { isCriticalApproachingVehicle(it, settings) }
+                .maxByOrNull { it.score }
+                ?.spatial?.tracked?.detection?.label,
         )
     }
 
@@ -94,9 +106,10 @@ fun selectAction(
             it.level in setOf(RiskLevel.WARN, RiskLevel.HIGH) &&
                 it.spatial.proximity.band in setOf(ProximityBand.NEAR, ProximityBand.IMMEDIATE)
         }
-    val leftBlocked = corridor.costs.leftCost >= settings.riskSideBlockThreshold ||
+    val sideBlockThreshold = sideBlockThreshold(corridor, settings)
+    val leftBlocked = corridor.costs.leftCost >= sideBlockThreshold ||
         noFloorAhead(corridor, CorridorChoice.LEFT, settings)
-    val rightBlocked = corridor.costs.rightCost >= settings.riskSideBlockThreshold ||
+    val rightBlocked = corridor.costs.rightCost >= sideBlockThreshold ||
         noFloorAhead(corridor, CorridorChoice.RIGHT, settings)
 
     val immediateCentre = centreAssessments.any {
@@ -115,6 +128,7 @@ fun selectAction(
             } else {
                 emptySet()
             },
+            blockingLabel = blockingLabel(centreAssessments, assessments),
         )
     }
 
@@ -137,6 +151,7 @@ fun selectAction(
                 reasonCode = "CENTRE_BLOCKED_CLEARER_SIDE",
                 preferredCorridor = preferred,
                 evidenceScore = highestScore,
+                blockingLabel = blockingLabel(centreAssessments, assessments),
             )
         }
         // Uncertainty and danger are different answers (docs/SAFETY_RULES.md).
@@ -146,6 +161,7 @@ fun selectAction(
             reasonCode = "CENTRE_BLOCKED_DIRECTION_UNCLEAR",
             preferredCorridor = CorridorChoice.NONE,
             evidenceScore = highestScore,
+            blockingLabel = blockingLabel(centreAssessments, assessments),
         )
     }
 
@@ -167,6 +183,7 @@ fun selectAction(
             reasonCode = "OBSTACLE_NEARBY",
             preferredCorridor = CorridorChoice.CENTRE,
             evidenceScore = highestScore,
+            blockingLabel = highest.spatial.tracked.detection.label,
         )
     }
     return ProposedDecision(
@@ -176,6 +193,29 @@ fun selectAction(
         preferredCorridor = CorridorChoice.CENTRE,
         evidenceScore = highestScore,
     )
+}
+
+/**
+ * How much cost it takes to condemn an escape route.
+ *
+ * [PipelineSettings.riskSideBlockThreshold] sits above the centre gate because
+ * losing a side turns a steerable frame into STOP, and corridor cost compounds
+ * as a noisy-OR — several moderate contributions reach 0.49 on a corridor that
+ * segmentation still reads as open floor.
+ *
+ * That generosity is bought from segmentation: it is only safe to be slower to
+ * condemn a side when something can still show the side is clear. With no
+ * surface evidence there is nothing to show it, the free-space rule below is
+ * disabled for the same reason, and the only signal left is the very cost being
+ * discounted — so the gate narrows back to the centre's.
+ */
+private fun sideBlockThreshold(
+    corridor: CorridorAnalysis,
+    settings: PipelineSettings,
+): Double = if (corridor.hasSurfaces) {
+    settings.riskSideBlockThreshold
+} else {
+    settings.riskCentreBlockThreshold
 }
 
 /**
@@ -201,6 +241,19 @@ private fun noFloorAhead(
     settings: PipelineSettings,
 ): Boolean = corridor.hasSurfaces &&
     corridor.floorExtents.valueFor(choice) <= settings.freespaceBlockedMax
+
+/**
+ * The object a blocked-path verdict is about: the worst thing actually in the
+ * centre of the path, falling back to the worst thing seen at all. Null when
+ * the corridor is blocked by surfaces rather than by anything the detector
+ * named — the cascade then says "path blocked", which is all it can defend.
+ */
+private fun blockingLabel(
+    centreAssessments: List<RiskAssessment>,
+    assessments: List<RiskAssessment>,
+): String? = (
+    centreAssessments.maxByOrNull { it.score } ?: assessments.maxByOrNull { it.score }
+    )?.spatial?.tracked?.detection?.label
 
 private fun clearerSide(corridor: CorridorAnalysis, decisionMargin: Double): CorridorChoice {
     val left = corridor.costs.leftCost

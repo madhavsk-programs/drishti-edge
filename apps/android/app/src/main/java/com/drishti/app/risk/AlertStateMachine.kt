@@ -18,6 +18,7 @@ data class StableDecision(
     val preferredCorridor: CorridorChoice,
     val criticalTrackIds: Set<Int>,
     val speak: Boolean,
+    val blockingLabel: String?,
 )
 
 class AlertStateMachine(private val settings: PipelineSettings) {
@@ -171,6 +172,7 @@ private fun stable(decision: ProposedDecision, speak: Boolean): StableDecision =
     preferredCorridor = decision.preferredCorridor,
     criticalTrackIds = decision.criticalTrackIds,
     speak = speak,
+    blockingLabel = decision.blockingLabel,
 )
 
 private fun levelRank(level: RiskLevel): Int = when (level) {
