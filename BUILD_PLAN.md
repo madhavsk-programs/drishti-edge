@@ -913,7 +913,7 @@ reported fallback if guarded session creation fails on another device.
 | Estimated free RAM (**MEASURE 4.1**) | 5.5 – 6.5 GB | 9 – 10 GB |
 | Class B ceiling after the 800 MB margin | ~4.5 GB | ~8 GB |
 | OCR / Explore Mode | ML Kit | ML Kit |
-| **Scene Mode** | Rung 3 only | **Rung 3 by default; Qwen3-VL-2B (1.55 GB) or Qwen3-VL-4B (2.95 GB) as the E10 stretch — see [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md). CPU, not NPU** |
+| **Scene Mode** | Rung 3 only | **Rung 3 by default; LFM2.5-VL-450M (0.33 GB) as the E10 stretch, 1.4 s per answer — see [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md). CPU, not NPU** |
 | Demo claim | Unchanged | Unchanged, plus "it can also answer a spoken question about the scene, offline" |
 
 > **The safety path is byte-identical on both variants.** Nothing on the
@@ -928,8 +928,15 @@ Pick **one**. Do not stage both into the APK.
 
 | Option | Size | Runtime | Notes |
 |---|---|---|---|
-| **Qwen3-VL-2B-Instruct** Q4_K_M + mmproj Q8_0 | **1.55 GB** | llama.cpp `libmtmd` | Tier 1. Fits 12 GB comfortably. [Qwen/Qwen3-VL-2B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF) |
-| **Qwen3-VL-4B-Instruct** Q4_K_M + mmproj Q8_0 | **2.95 GB** | Same | Tier 2, the "4B-class VL model" case. What 16 GB unlocks. [Qwen/Qwen3-VL-4B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF) |
+| **LFM2.5-VL-450M** Q4_K_M + mmproj Q8_0 | **0.33 GB** | llama.cpp `libmtmd` | **What shipped.** 1.4 s per answer; the only tier inside the sub-7 s bound. [LiquidAI/LFM2.5-VL-450M-GGUF](https://huggingface.co/LiquidAI/LFM2.5-VL-450M-GGUF) |
+| Qwen3-VL-2B-Instruct Q4_K_M + mmproj Q8_0 | 1.55 GB | Same | Better answers, **~13 s of load per invocation**. Needs the Class B contract amended first. [Qwen/Qwen3-VL-2B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct-GGUF) |
+| Qwen3-VL-4B-Instruct Q4_K_M + mmproj Q8_0 | 2.95 GB | Same | Best answers of the three, **~16 s of load**. Not reachable under Class B. [Qwen/Qwen3-VL-4B-Instruct-GGUF](https://huggingface.co/Qwen/Qwen3-VL-4B-Instruct-GGUF) |
+
+> **Measured 12 September 2026, not estimated.** Memory is not what decides this
+> — all three fit — **initialization latency is**, and it is paid on every call
+> because Class B forbids keeping the model resident. Requantizing the 2B to
+> Q4_0 was tried and does not help: load is 12.5 – 15.3 s either way. See
+> [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §4.3.3.
 
 Both are **Apache-2.0 and ungated** — plain `curl`, no browser step, no account.
 Both run on the **same** `libmtmd` build, so "pick one" is a staging decision
@@ -945,11 +952,10 @@ to mean.
 
 > **MEASURE 4.1** — on the loaner, after a reboot with everything closed, record
 > `ActivityManager.MemoryInfo.availMem`.
-> **Decision rule:** ≥ 4.5 GB free → E10 may attempt Qwen3-VL-4B. 2.5–4.5 GB
-> free → Qwen3-VL-2B only. < 2.5 GB free → rung 3 only, no phone VLM, and say so
-> if asked. See [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §1 for how each
-> threshold is built up from model size, the 800 MB margin, the KV cache and the
-> decoded image.
+> **Decision rule:** ≥ 1.2 GB free → E10 loads LFM2.5-VL-450M. Below that → rung
+> 3 only, no phone VLM, and say so if asked. The larger tiers are gated by
+> latency rather than memory and are not attempted; see
+> [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §4.3.2.
 
 ### 4.2 What this settles
 

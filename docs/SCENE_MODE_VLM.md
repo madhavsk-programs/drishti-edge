@@ -20,7 +20,8 @@
 | Headroom, post-reboot | ~5.5 – 6.5 GB | **~9 – 10 GB** |
 | Headroom, realistic daily-use state | ~3.6 GB *(measured)* | **~7 GB** *(estimate — MEASURE it)* |
 | Class B budget after the 800 MB margin | ~2.8 GB | **~6 GB** |
-| Largest safe Scene model | Qwen3-VL-2B (1.55 GB) | **Qwen3-VL-4B (2.95 GB)** |
+| Largest Scene model that *fits* | Qwen3-VL-2B (1.55 GB) | Qwen3-VL-4B (2.95 GB) |
+| Largest that is **fast enough** (§4.5) | LFM2.5-VL-450M | **LFM2.5-VL-450M** |
 
 Everything else — detection, segmentation, tracking, corridor geometry, the risk
 cascade, speech, spatial audio — is **byte-identical** on both. The extra 4 GB
@@ -31,11 +32,14 @@ touches exactly one capability.
 > 12 GB device in daily use the figure was 3.6 GB against a 5.5 GB post-reboot
 > expectation. Assume a comparable gap here.
 >
-> **Decision rule:** ≥ 4.5 GB free → tier 2 (Qwen3-VL-4B, 2.95 GB). 2.5 – 4.5 GB
-> free → tier 1 (Qwen3-VL-2B, 1.55 GB). < 2.5 GB free → tier 0, no phone VLM,
-> say so plainly if asked. Each threshold is the model's resident size plus the
-> fixed 800 MB `SAFETY_MARGIN_BYTES` plus room for the KV cache and the decoded
-> image; it is not the model size alone.
+> **Memory decision rule.** ≥ 1.2 GB free → tier 1 (LFM2.5-VL-450M). Below that
+> → tier 0, no phone VLM, say so plainly if asked. The threshold is the model's
+> resident size plus the fixed 800 MB `SAFETY_MARGIN_BYTES` plus room for the KV
+> cache and the decoded image; it is not the model size alone.
+>
+> **Memory is no longer the binding constraint — latency is.** Both larger tiers
+> fit this phone comfortably and are still disqualified by §4.3.2. Do not widen
+> this rule on the strength of free memory alone.
 
 ---
 
@@ -44,19 +48,22 @@ touches exactly one capability.
 | Tier | Model | Total size | Runtime | When |
 |---|---|---|---|---|
 | **0** | **Detection-derived scene summary — no VLM** | 0 | Kotlin | **Default. Always available. Cannot fail.** |
-| **B** | **LFM2.5-VL-450M** Q4_K_M + mmproj Q8_0 | **0.33 GB** | llama.cpp `libmtmd` | **Bring-up only** — proves the lifecycle, not the product |
-| **1** | **Qwen3-VL-2B-Instruct** Q4_K_M + mmproj Q8_0 | **1.55 GB** | llama.cpp `libmtmd` | The safe real VLM |
-| **2** | **Qwen3-VL-4B-Instruct** Q4_K_M + mmproj Q8_0 | **2.95 GB** | llama.cpp `libmtmd` | What 16 GB unlocks |
+| **1** | **LFM2.5-VL-450M** Q4_K_M + mmproj Q8_0 | **0.33 GB** | llama.cpp `libmtmd` | **The shipping VLM. 1.4 s, meets the sub-7 s bound** (§4.5) |
+| 2 | Qwen3-VL-2B-Instruct Q4_K_M + mmproj Q8_0 | 1.55 GB | llama.cpp `libmtmd` | **Only if §5 is amended** — ~13 s of load per call otherwise (§4.3.3) |
+| 3 | Qwen3-VL-4B-Instruct Q4_K_M + mmproj Q8_0 | 2.95 GB | llama.cpp `libmtmd` | Best answers, ~16 s load. Not reachable under §5 |
 
-**One runtime, one licence, across every tier.** That is the point of this
-ladder. Tiers B, 1 and 2 differ only by which two files are on disk, so the
-choice between them is a *measurement*, not an engineering commitment — build
-`libmtmd` once, then swap GGUFs and time each.
+**One runtime across every tier.** That is the point of this ladder: the tiers
+differ only by which two files are on disk, so the choice between them was a
+*measurement* rather than an engineering commitment — `libmtmd` was built once
+and each GGUF timed. §4 is what that measurement found.
 
-> **Decision rule, revised.** Free memory still gates which tier may load
-> (§1), but **measured latency picks the default.** Bring up tier B first to
-> prove the Class-B lifecycle against a model small enough that nothing else can
-> be the suspect. Then measure tier 1 and tier 2 and let the numbers choose.
+> **Decision rule, settled by measurement on 12 September 2026.** Free memory
+> still gates which tier *may* load (§1), but **latency chose the default, and
+> it chose the smallest model.** The requirement is a sub-7 s answer every time;
+> tier 1 delivers 1.4 s and passes the capability checks in §4.5, while tiers 2
+> and 3 spend 13 – 16 s in initialization alone, before looking at a pixel, on
+> every invocation. That is a property of the Class B contract (§5) meeting
+> Qwen3-VL's init cost — not something a better quantization fixes (§4.3.3).
 
 > **Tier 0 is not a failure state.** *"A person ahead on the left, a chair to the
 > right, a doorway centre"* composed from the detector's existing output is
@@ -100,12 +107,12 @@ And the last row is the one that matches the requirement: Scene Mode must answer
 **semantic questions about text it can see** (§5), not merely caption. That is
 what Qwen3-VL is best at and what Gemma 3n is weakest at.
 
-> **Still unmeasured, and not to be asserted:** decode speed for a 4B Q4_K_M
-> with a vision prefill on this phone's CPU. No public benchmark covers it. The
-> nearest datapoint is a 3B Q4_K_M at ~8 tok/s on a server CPU, which would put a
-> one-shot answer in the 10–20 s range — possibly too slow even for an explicit
-> gesture. **Measure it before claiming it.** This is exactly why tier B exists
-> and why the tiers share a runtime.
+> **That last row was the reasoning, and latency overruled it.** Qwen3-VL is
+> indeed the best of these at reading text — §4.3.3 shows it answering correctly
+> — but it spends 13 – 16 s initializing before it looks at anything, on every
+> invocation, and that is disqualifying under a sub-7 s bound. The analysis in
+> this section stands on size, licence and runtime; it was simply not the
+> dimension that decided the outcome. See §4.5 for what shipped instead.
 
 ### 2.2 Ruled out
 
@@ -113,7 +120,7 @@ what Qwen3-VL is best at and what Gemma 3n is weakest at.
 |---|---|
 | Moondream2 on the phone | No quantized GGUF published — f16 only, **3.75 GB** with the projector. Self-quantizing is an hour on the critical path for a narrative benefit |
 | Gemma 3n E2B / E4B | Superseded — see §2.1. Bigger, gated, weaker at text, and the only tier that needed a second runtime |
-| LFM2.5-VL-1.6B | Not wrong, just dominated at the same size class: Qwen3-VL-2B is 1.55 GB against 1.31 GB, Apache-2.0 against the LFM Open Licence, and far stronger on text in images. The 450M sibling is kept as tier B because small-and-boring is what a bring-up rung is for |
+| LFM2.5-VL-1.6B | Not wrong, just dominated at the same size class: Qwen3-VL-2B is 1.55 GB against 1.31 GB, Apache-2.0 against the LFM Open Licence, and far stronger on text in images. Its 450M sibling is what shipped instead — not because it is better, but because it is the only one fast enough (§4.5) |
 | Qwen3-VL 2B / 4B **on the NPU** | Unchanged and still true: AI Hub mobile deployment is not reachable in an event window (`BUILD_PLAN.md` §2.4). Tiers 1 and 2 run on the **CPU** and make no NPU claim |
 
 ---
@@ -284,6 +291,33 @@ is ~8 s before any pixel is looked at, which **cannot fit a sub-7 s budget at
 any quantization**. Meeting that budget with a 2B-class model therefore requires
 amending §5, not tuning the model.
 
+### 4.3.3 The Q4_0 experiment on Qwen3-VL-2B — tested, and it does not rescue it
+
+The prediction above was tested rather than assumed. Qwen publish no Q4_0, so
+the 3.4 GB F16 was downloaded and requantized with `llama-quantize` **on the
+phone** (4.8 s, producing 1,054,424,096 bytes). Three paired runs, cooled to
+< 52 °C before each, `-t 6`, 320 px, same image and question:
+
+| Run | Q4_K_M load / wall | Q4_0 load / wall |
+|---|---|---|
+| 1 | 15.3 s / 20.5 s | 13.0 s / 25.0 s |
+| 2 | 13.9 s / 27.4 s | 13.7 s / 31.5 s |
+| 3 | 12.5 s / 17.1 s | 14.6 s / 28.0 s |
+
+**Load is 12.5 – 15.3 s either way — statistically indistinguishable.** The
+4.3× prompt-processing win from §4.3.1 is real, but it lands on *encode*, which
+was already down to ~1.2 s. It cannot touch initialization.
+
+> **Conclusion, measured rather than projected: Qwen3-VL-2B cannot meet a
+> sub-7 s budget under the §5 Class B contract, at any quantization.** Do not
+> re-open this by trying another quant; the next idea worth testing is
+> amending §5 to keep the model resident for the duration of an explicit Scene
+> session, which removes the load entirely.
+
+Both answers were correct, which is worth noting — the 2B is not *wrong*, it is
+*late*: Q4_K_M gave "Yes, there is a bag in the image. It is a blue backpack."
+and Q4_0 gave "yes, a backpack".
+
 ### 4.4 What the tuning was worth, and what still costs
 
 Qwen3-VL-2B, one 320 px image, one sentence out, measured on this phone:
@@ -318,6 +352,40 @@ seconds are model initialization, paid **on every single invocation** because
 §5 forbids keeping the model resident. For the 2B that is roughly 8 of its 12
 seconds. The tier choice is therefore partly a question about the Class B
 contract, not only about the models.
+
+### 4.5 Capability at tier B — measured against the demo objects
+
+The requirement is a **sub-7 s answer, always**, that names doors, chairs,
+tables, bottles, bags, people and laptops, and reads basic text. LFM2.5-VL-450M
+Q4_K_M, 320 px, `-t 6`, tested on COCO128 fixtures containing exactly those
+objects:
+
+| Check | Result |
+|---|---|
+| Latency | **1.35 – 1.65 s** |
+| Direct object questions (bag, chair, laptop, bottle) | **4 / 4 correct** |
+| Absent-object questions | **4 / 5 correct "No"** — it is not a yes-machine |
+| Sign reading | **2 / 2 verbatim** — "EXIT ROOM 204", "PLATFORM 3 TRAINS" |
+| Text in a photo | "cero emisiones" on the bus, correct |
+| Open scene captioning | Names table, bottle, chair, laptop, suitcase; **drifts to the dominant subject and can miss small objects** |
+
+**The shape of this result decides the prompt design, not just the tier.** The
+450M missed a backpack when asked to caption freely — it answered "a busy city
+square with a large monument" — but when asked *"Is there a bag in this
+image?"* it replied *"Yes... It's a black backpack carried by a woman in the
+foreground."* Same model, same image, same 320 px input.
+
+> **MUST: prefer a direct question over an open caption.** Scene Mode should ask
+> the model the user's actual question, and when the user asks for a general
+> description it should still be given a *specific* instruction rather than
+> "describe this". A small VLM is far more reliable as a detector-of-what-you-
+> named than as a narrator.
+
+> **The one caveat on "always".** The worst latency observed for tier B was
+> **7.4 s**, on the first run after the phone had been cooled from 105 °C — CPU
+> governor ramp, not steady state. Typical is 1.4 – 2 s. If the sub-7 s bound
+> must hold even in that state, it needs designing for (warm the model at
+> gesture start, speak an acknowledgement immediately), not assuming.
 
 ---
 
