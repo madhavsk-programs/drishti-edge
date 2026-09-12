@@ -215,6 +215,67 @@ bus number or a door sign does not, and Scene Mode is supposed to do both (§5).
 `ARCHITECTURE.md` §6.4 already required "bounded input resolution" as a gate.
 This is the measured value for that bound: **long edge 320 px**.
 
+### 4.3 Two more tuning results, both counter-intuitive
+
+**Use 6 threads, not 8.** The SoC is heterogeneous, and every ggml step waits on
+its slowest thread, so scheduling onto the efficiency cores drags the whole
+batch. Qwen3-VL-2B, same everything, cooled:
+
+| `-t` | Wall |
+|---|---:|
+| 8 | 28.4 s |
+| 6 | 21.9 s |
+| 4 | 21.1 s |
+
+**26% faster with fewer threads.** Do not "use all the cores".
+
+**Keep `GGML_CPU_KLEIDIAI=ON`.** It was briefly suspected of being the load-time
+cost, since it repacks weights at load and the load phase dominates. It is not —
+disabling it made things twice as slow:
+
+| Build | Qwen3-VL-2B wall, cooled, `-t 6` |
+|---|---:|
+| KleidiAI **ON** | **12.3 s** |
+| KleidiAI OFF | 26.2 s |
+
+So `GGML_LLAMAFILE` and `GGML_CPU_KLEIDIAI` are both `ON`, and they are
+complementary: llamafile fixes prompt processing, KleidiAI fixes the rest.
+
+### 4.4 What the tuning was worth, and what still costs
+
+Qwen3-VL-2B, one 320 px image, one sentence out, measured on this phone:
+
+| Configuration | Wall |
+|---|---:|
+| First attempt — `LLAMAFILE=OFF`, 512 px, `-t 8` | **51 s** |
+| Tuned — `LLAMAFILE=ON`, 320 px, `-t 6`, warm | **12.3 s** |
+
+**A 4× improvement from build flags and one resolution bound — no model change.**
+That is the reason the "measure, then pick" ladder exists: the first number was
+not a property of the model, it was a property of a bad build.
+
+> **Read these numbers with the variance in mind.** This phone swings hard in
+> both directions. Sustained runs drove one thermal zone to **105 °C** and
+> throttled badly; runs started from cold are *also* slow because the governor
+> ramps. The same model and image encoded in **395 ms** and in **5,202 ms** in
+> different runs. Quote a range, never a single figure, and say which state it
+> was measured in.
+
+**Where the remaining time goes** — cooled, `-t 6`, 320 px:
+
+| Tier | Load | Encode | Decode | Wall |
+|---|---:|---:|---:|---:|
+| LFM2.5-VL-450M | ~1 s | 0.4 – 5.2 s | ~1 s | **2 – 7 s** |
+| Qwen3-VL-2B | ~8 s | ~1.4 s | ~11 s | **12 – 21 s** |
+| Qwen3-VL-4B | ~16 s | ~1.9 s | ~22 s | **25 – 40 s** |
+
+Encoding is no longer the problem for any tier. **Load and decode are**, and
+load is not I/O — the model file reads from page cache at 6.6 GB/s, so those
+seconds are model initialization, paid **on every single invocation** because
+§5 forbids keeping the model resident. For the 2B that is roughly 8 of its 12
+seconds. The tier choice is therefore partly a question about the Class B
+contract, not only about the models.
+
 ---
 
 ## 5. The Class B contract — non-negotiable
