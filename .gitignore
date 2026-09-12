@@ -34,3 +34,10 @@ logs/
 
 # Reference copy of the previous implementation, kept locally only
 entire-old-codebase/
+
+# Python virtualenvs
+.venv/
+.venv-*/
+venv/
+__pycache__/
+*.py[cod]

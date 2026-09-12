@@ -1,97 +1,64 @@
-# Device budget — 12 GB iQOO 15
+# Device budget — iQOO 15, 16 GB
 
 Quick reference. Full reasoning in [`../ARCHITECTURE.md` §4–§5](../ARCHITECTURE.md#4-device-budget--12-gb-iqoo-15).
 
-## Why 12 GB is the planning assumption
-
-The loaner variant is unconfirmed. The iQOO 15 ships in 12 GB and 16 GB
-configurations, and one flagship loaner is handed over per person at check-in
-without a stated SKU.
-
-**Every must-have item fits 12 GB.** A demo that depends on drawing the 16 GB
-variant is a demo that can fail at check-in for reasons entirely outside our
-control.
+> **The variant is confirmed: 16 GB.** Everything in this project was designed
+> against 12 GB so that drawing the smaller SKU could never break the demo. That
+> constraint held and is now slack. **Nothing on the safety path changes** — the
+> only thing 16 GB buys is headroom for the on-demand Scene Mode model
+> ([`SCENE_MODE_VLM.md`](SCENE_MODE_VLM.md)).
 
 ## RAM accounting
 
-| Consumer | Estimate |
-|---|---|
-| Android 16 + OriginOS, idle after reboot | 3.5 – 4.5 GB · **measure on the loaner** |
-| Other system services, background apps | ~1.0 GB · reducible |
-| Our app baseline — Compose, CameraX, buffers | 0.4 – 0.6 GB |
-| **Headroom before the low-memory killer** | **~5.5 – 6.5 GB** |
+| Consumer | 12 GB (design target) | **16 GB (actual)** |
+|---|---|---|
+| Android 16 + OriginOS, idle after reboot | 3.5 – 4.5 GB | 3.5 – 4.5 GB |
+| Other system services, background apps | ~1.0 GB | ~1.0 GB |
+| Our app baseline — Compose, CameraX, buffers | 0.4 – 0.6 GB | 0.4 – 0.6 GB |
+| **Headroom before the low-memory killer** | ~5.5 – 6.5 GB | **~9 – 10 GB** |
 
-> **Planning ceiling: 3.5 GB total model residency. Hard ceiling 4.5 GB.**
-> Above that the low-memory killer starts reclaiming, and the failure mode is our
-> process being killed mid-walk — silent until it happens.
+> **MEASURE** `availMem` on the loaner in the state it will be in at demo time —
+> **not** freshly rebooted. On a measured 12 GB device in normal daily use, free
+> memory was **3.6 GB**, not the 5.5 GB the post-reboot figure suggests. Expect
+> the same gap here: real free memory will be well under the 9–10 GB row.
+
+> **ZRAM is not headroom.** The measured device carried 12.6 GB of compressed
+> swap with 8.3 GB free. Paging a multi-gigabyte model through it is slow and
+> thermally expensive, and the low-memory killer still counts the uncompressed
+> working set. **MUST NOT** size a model against `SwapFree`.
 
 ## Model residency
 
-| Stage | Resident? | Footprint |
-|---|---|---|
-| Detection — YOLO11n, quantized | **Always** | 120 – 180 MB |
-| Segmentation — SegFormer-B0 ADE20K, quantized | **Always, if its gate passes** | 150 – 250 MB |
-| Track, spatial, risk, guidance, target memory | Always | < 20 MB, pure Kotlin |
-| **Walk loop total** | | **~300 – 450 MB** |
-| OCR | On demand | 150 – 250 MB peak |
-| Phone VLM — Qwen3-VL-2B INT4, optional | On demand | 2.0 – 2.7 GB peak |
-| Reasoning LLM — Qwen3-4B INT4 | **Not on device** | 3.0 – 3.5 GB peak |
+Measured on Qualcomm's published Snapdragon 8 Elite Gen 5 NPU profiles, not
+estimated.
 
-The walk loop is comfortable. Everything else is a spike.
-
-## The rule that keeps it safe
-
-> **No two on-demand models are ever co-resident, with each other or with
-> anything else large.** On 12 GB, `2.5 GB + 3.2 GB` exceeds the ceiling and the
-> process dies.
-
-On-demand models are strictly: check free memory → refuse if below floor → load →
-one inference → **unload** → *then* return the result.
-
-Returning before the unload leaves a window where a second request doubles the
-footprint.
-
-Dropping a reference is not the same as freeing native memory. A native runtime
-may retain arenas, contexts, and graph memory after the object is gone. Call the
-runtime's explicit close API, then **measure reclaimed memory**. A runtime that
-cannot be proved to release belongs in a separate killable process.
-
-`SAFETY_MARGIN_BYTES = 800 MB`, and it is not tuned down to make a demo work. A
-refused Scene query is a minor disappointment; a killed process mid-walk is a
-safety failure.
-
-## Quantization reference
-
-Weight storage only — real runtime memory is higher once KV cache, activations,
-buffers, tokenizer and vision encoder are counted.
-
-| Precision | Bytes / parameter | A 2 B model | A 4 B model |
+| Stage | Resident? | Footprint | NPU latency |
 |---|---|---|---|
-| FP16 | 2 | 4.0 GB | 8.0 GB |
-| INT8 | 1 | 2.0 GB | 4.0 GB |
-| INT4 | 0.5 | 1.0 GB | 2.0 GB |
-| INT2 | 0.25 | 0.5 GB | 1.0 GB |
+| Detection — YOLO11n w8a16 | **Always** | 0 – 82 MB | **2.27 ms** |
+| Segmentation — SegFormer-B0 ADE20K w8a16 | **Always** | 13 – 217 MB | **5.66 ms** |
+| Track, spatial, risk, guidance, target memory | Always | < 20 MB, pure Kotlin | — |
+| **Walk loop total** | | **~300 – 450 MB** | **~8 ms/frame** |
+| OCR — ML Kit | On demand | 150 – 250 MB peak | CPU |
+| Scene Mode VLM | On demand | 1.3 – 4.4 GB peak | **CPU, not NPU** |
+| Reasoning LLM | **Not on device** | — | — |
 
-Snapdragon 8 Elite Gen 5 adds INT2 and FP8 support. INT4 is the working
-assumption for language and vision-language models.
+The walk loop is comfortable on either variant. Everything else is a spike.
 
-## The gate that changes everything
+## The rules that do not relax on 16 GB
 
-The parent research notes NexaSDK's Android path documents a **16 GB RAM floor**.
-On a 12 GB device it may simply be unavailable.
+- **`SAFETY_MARGIN_BYTES` stays at 800 MB.** It is not tuned down to make a demo
+  work. A refused Scene query is a disappointment; a killed process mid-walk is a
+  safety failure.
+- **No two on-demand models are ever co-resident**, with each other or with
+  anything else large.
+- **Check free memory immediately before every invocation**, not once at startup.
+  The number moves.
+- **Return the result after the unload, never before.** Returning first and
+  unloading asynchronously opens a window where a second request doubles the
+  footprint.
+- **Verify reclaim.** Dropping a Kotlin reference does not free native memory.
+  Call the runtime's explicit release, then measure. If reclaim cannot be proved,
+  host the model in a separate killable process and reclaim by killing it.
 
-| Outcome | Response |
-|---|---|
-| Initialises, NPU backend | Candidate for OCR and the optional phone VLM |
-| Initialises, CPU only | Do not use it. CPU inference anywhere near the walk loop is a thermal and latency disaster. |
-| Does not initialise | AI Hub / QNN only. The phone VLM drops to optional, with the laptop snapshot locator as its fallback. |
-
-Test this before designing around it. It reshapes the rest of the plan.
-
-## What the budget does not include
-
-The optional locator fallback runs on the laptop, not the phone, and costs the
-phone nothing. It is *laptop-assisted target localization* — an explicit single
-snapshot in, one normalized box out — and it is never part of the on-device
-claim. Full reasoning in
-[`../ARCHITECTURE.md` §6.4](../ARCHITECTURE.md#64-the-locator-and-scene-vlm--optional-proof-never-a-prerequisite).
+> The extra 4 GB changes what Scene Mode can load. It does not change any of the
+> five rules above, and it does not change a single line of the walking loop.

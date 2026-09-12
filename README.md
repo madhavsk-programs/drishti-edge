@@ -20,9 +20,10 @@ else.
 | `apps/dashboard/` | React + Vite coordinator dashboard |
 | `packages/contracts/` | TypeScript API contracts |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Perception and guidance pipeline specification |
-| [`IQOO_PHONE_FIRST_ARCHITECTURE_REVISIONS.md`](IQOO_PHONE_FIRST_ARCHITECTURE_REVISIONS.md) | The technical revision the architecture is built on |
+| [`BUILD_PLAN.md`](BUILD_PLAN.md) | Execution plan — laptop preparation, agent task cards, device bring-up, demo runbook |
 | [`docs/SAFETY_RULES.md`](docs/SAFETY_RULES.md) | Safety contract |
-| [`docs/DEVICE_BUDGET.md`](docs/DEVICE_BUDGET.md) | 12 GB memory budget |
+| [`docs/DEVICE_BUDGET.md`](docs/DEVICE_BUDGET.md) | Memory budget |
+| [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) | Scene Mode vision-language model options |
 
 ---
 
@@ -88,7 +89,8 @@ once, unload, and only then return — so no two are ever in memory together.
 | OCR | On-device OCR | On demand |
 | Scene questions and target locating | Optional, gated | On demand |
 
-Memory is budgeted for the **12 GB** device variant. Every model choice has a
+Memory is budgeted for the **12 GB** device variant, which the confirmed 16 GB
+unit exceeds. Every model choice has a
 gate and a fallback in
 [`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-model-selection-and-gates); a gate that
 fails removes a capability rather than downgrading it silently.

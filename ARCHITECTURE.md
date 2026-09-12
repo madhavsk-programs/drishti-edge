@@ -1,9 +1,11 @@
 # DRISHTI Edge — Phone-First On-Device Architecture
 
 > **Status:** build specification for the iQOO Hackathon Chennai City Battle,
-> 12–13 September 2026. Incorporates the accepted revisions in
-> [`IQOO_PHONE_FIRST_ARCHITECTURE_REVISIONS.md`](IQOO_PHONE_FIRST_ARCHITECTURE_REVISIONS.md).
-> **Target device:** iQOO 15, Snapdragon 8 Elite Gen 5, **12 GB RAM variant assumed**.
+> 12–13 September 2026. The phone-first technical revision this document was
+> built on has been folded in; that source file is no longer carried separately.
+> **Target device:** iQOO 15, Snapdragon 8 Elite Gen 5, **16 GB RAM confirmed**
+> (§4 is written against 12 GB and is therefore a floor, not a ceiling — see
+> [`BUILD_PLAN.md` §4](BUILD_PLAN.md#4-the-12-gb--16-gb-fork)).
 > **Purpose:** move the perception and guidance stack off a laptop GPU and onto
 > the phone's Hexagon NPU, so a walking user is never dependent on a nearby
 > machine.
