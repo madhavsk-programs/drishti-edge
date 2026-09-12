@@ -241,6 +241,49 @@ disabling it made things twice as slow:
 So `GGML_LLAMAFILE` and `GGML_CPU_KLEIDIAI` are both `ON`, and they are
 complementary: llamafile fixes prompt processing, KleidiAI fixes the rest.
 
+### 4.3.1 Quantization is a *speed* decision here, not a size decision
+
+The KleidiAI note above turned out to matter far more than "a lead". Same model,
+same build, only the quantization differs — LFM2.5-VL-450M, `-t 8`, cooled:
+
+| Quant | `pp128` | `tg32` |
+|---|---:|---:|
+| Q4_K_M | 394.88 ± 0.84 t/s | 169.73 ± 2.75 t/s |
+| **Q4_0** | **1689.05 ± 82.47 t/s** | **190.04 ± 9.50 t/s** |
+
+**4.3× on prompt processing, 1.12× on decode.** `Q4_K_M` is a mixture containing
+`q6_K` tensors; KleidiAI implements `Q4_0` and `Q8_0` only, so the *more
+sophisticated* quantization is the slower one on this hardware. That is the
+opposite of the usual intuition, and it is worth checking on any new model.
+
+**This is a problem for Qwen3-VL specifically**, because Qwen publish only F16,
+Q8_0 and Q4_K_M — there is no official Q4_0. Producing one means downloading the
+3.4 GB F16 and running `llama-quantize`.
+
+> **But do not expect it to rescue load time.** Measured on the 450M, which
+> exists in both quants, warm: Q4_K_M loads in **0.54 s**, Q4_0 in **0.47 s** —
+> about 13%. Quantization buys compute throughput, not initialization.
+
+### 4.3.2 Load time is initialization, and it scales badly with this architecture
+
+| Model | Total bytes | Warm load |
+|---|---:|---:|
+| LFM2.5-VL-450M | 332 MB | **~0.5 s** |
+| Qwen3-VL-2B | 1,552 MB | **~7.9 – 10.8 s** |
+| Qwen3-VL-4B | 2,951 MB | ~15.7 s |
+
+It is **not I/O**: the model file reads from page cache at **6.6 GB/s**, and the
+second consecutive run still pays ~7.9 s. Between the 2B and the 4B the cost is
+linear in bytes (1.9× bytes, 1.87× time), but between the 450M and the 2B it is
+**4.7× the bytes for ~16× the time** — so this is a fixed architectural cost of
+Qwen3-VL's initialization, not a size law.
+
+**Consequence for the Class B contract (§5).** Load is paid on *every*
+invocation, because §5 forbids keeping the model resident. For Qwen3-VL-2B that
+is ~8 s before any pixel is looked at, which **cannot fit a sub-7 s budget at
+any quantization**. Meeting that budget with a 2B-class model therefore requires
+amending §5, not tuning the model.
+
 ### 4.4 What the tuning was worth, and what still costs
 
 Qwen3-VL-2B, one 320 px image, one sentence out, measured on this phone:
