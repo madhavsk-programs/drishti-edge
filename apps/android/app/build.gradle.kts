@@ -7,6 +7,9 @@ plugins {
 android {
     namespace = "com.drishti.app"
     compileSdk = 36
+    // Pinned: the Scene VLM's llama.cpp build was measured against this NDK.
+    // Without it AGP silently picks whichever NDK is installed.
+    ndkVersion = "29.0.14206865"
     defaultConfig {
         applicationId = "com.drishti.app"
         minSdk = 31
@@ -16,6 +19,32 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // The ONNX Runtime QNN AAR and the QAIRT backend libraries are arm64 only.
         ndk { abiFilters += "arm64-v8a" }
+
+        externalNativeBuild {
+            cmake {
+                // Scene Mode's llama.cpp bridge. The flags live in
+                // app/src/main/cpp/CMakeLists.txt because they were measured on
+                // device — see docs/SCENE_MODE_VLM.md §4.1.
+                arguments += listOf("-DANDROID_STL=c++_shared")
+                cppFlags += "-O3"
+            }
+        }
+    }
+
+    // Absent until scripts/bootstrap_llama.sh has run. Gate on that rather than
+    // failing every build for people who are not touching Scene Mode.
+    if (file("../../../third_party/llama.cpp/CMakeLists.txt").exists()) {
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+                version = "3.31.6"
+            }
+        }
+    } else {
+        logger.lifecycle(
+            "third_party/llama.cpp absent — building without the Scene VLM. " +
+                "Run scripts/bootstrap_llama.sh to enable it."
+        )
     }
 
     buildTypes {

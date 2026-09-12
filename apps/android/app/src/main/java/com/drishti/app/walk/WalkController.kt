@@ -31,6 +31,7 @@ import com.drishti.app.net.StartWalkSessionRequest
 import com.drishti.app.net.WalkSettings
 import com.drishti.app.net.apiCall
 import com.drishti.app.scene.SceneDescriber
+import com.drishti.app.scene.SceneVlm
 import com.drishti.app.scene.TargetLocator
 import com.drishti.app.settings.DrishtiSettings
 import com.drishti.app.settings.SettingsStore
@@ -143,7 +144,10 @@ class WalkController(
     private val gyro = GyroSteering(app)
     private val focus = AudioFocusManager(app)
     private val explore = ExploreController(pipeline, speech, strings)
-    private val scene = SceneDescriber(api, pipeline, speech, strings, VoicePrompt(app))
+    // Scene Mode answers on the phone. Null when the GGUF files are not
+    // staged; SceneDescriber then refuses audibly rather than silently.
+    private val sceneVlm = SceneVlm.create(app)
+    private val scene = SceneDescriber(sceneVlm, pipeline, speech, strings, VoicePrompt(app))
     private val locator = TargetLocator(api, speech, strings)
     private val hazards = HazardReporter(api, pipeline, speech, strings)
     private val nearby = NearbyAdvisor(api, speech, strings)

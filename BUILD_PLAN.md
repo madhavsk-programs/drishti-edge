@@ -16,8 +16,13 @@
 
 Everything below was **executed and verified**, not planned. The app runs the
 whole walking loop on iQOO 15 hardware with no backend and no network. The
-original 16 GB loaner established the end-to-end result; the current 12 GB test
-phone established the portable NPU path on the smaller production variant.
+original 16 GB loaner established the end-to-end result; the 12 GB test phone
+established the portable NPU path on the smaller production variant.
+
+Both phones have now run it independently. The 16 GB phone reproduced the NPU
+result on a second toolchain — YOLO11n QDQ at **3.40 ms** guarded HTP against
+34.36 ms CPU, SegFormer-B0 at **11.69 ms** against 146.45 ms, and a live first
+frame at **63.63 ms**. The result is not specific to one handset or one export.
 
 ### Working on the loaner, measured
 
@@ -40,64 +45,54 @@ phone established the portable NPU path on the smaller production variant.
 | **A6** | `inference/` seam + `LocalWalkPipeline` + the `WalkController` rewire |
 | **A8** | Bundled ML Kit OCR, local confidence/route parsing, and uninterrupted walking safety during a read. Verified on the 12 GB phone with `BUS 42A` |
 
-### NEXT AGENT — start here: real on-device VLM
+### NEXT AGENT — start here: one bug blocks Scene Mode
 
-The user explicitly rejected making detector/OCR templates stand in for scene
-understanding. **Let the VLM own Scene Mode and semantic text comprehension.**
-Do not add testing buttons; when a physical interaction must be checked, install
-the build and ask the user to perform the existing gesture.
+**The VLM work is built and measured; it is blocked on a single defect.** The
+full account is [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §8 — read it
+before touching anything here, including the list of hypotheses **already ruled
+out** so you do not spend the evening re-testing them.
 
-Current boundary:
+One-paragraph summary: LFM2.5-VL-450M is the settled Scene model, chosen by
+measurement over Qwen3-VL-2B/4B because initialization latency, not capability
+or memory, is the binding constraint. llama.cpp is pinned at **b10926** and
+builds through Gradle; the JNI bridge loads and the model initializes inside the
+app. Answering works perfectly through `llama-mtmd-cli` on this phone
+(1.35 – 1.65 s, reads signs verbatim). **Inside the app the image chunk of
+`mtmd_helper_eval_chunk_single` never returns** — text chunks evaluate fine,
+CPU time freezes at an identical value across runs, and there is no crash, no
+tombstone and no error. Next experiment, not yet run: call it from a thread with
+an 8 MB stack rather than the ~1 MB binder thread.
 
-- Explore/Read is complete and local (A8). ML Kit reads text; it is not a
-  language model and must not be described as comprehension.
-- `SceneDescriber` and `TargetLocator` still use the old `/vlm/query` and
-  `/vlm/locate` endpoints. With no coordinator they say `Connection lost`.
-  This is known unfinished work, not an OCR failure.
+**`SceneVlm` is gated off** behind a `scene_vlm_enabled` marker file so a user
+gesture cannot reach a native call that never returns and cannot be interrupted
+(§8.5). Remove the gate in the commit that fixes the hang.
+
+Standing constraints, unchanged:
+
+- The user explicitly rejected making detector/OCR templates stand in for scene
+  understanding. **Let the VLM own Scene Mode and semantic text comprehension.**
+- Do not add testing buttons. When a physical interaction must be checked,
+  install the build and ask the user to perform the existing gesture. On-device
+  instrumented tests are the right tool for native code and are already used.
 - A detector-derived Scene experiment was built and tested locally, then
   deliberately removed before commit at the user's direction. Do not restore it.
-- The current 12 GB iQOO 15 is sufficient for implementation and the 450M/1.6B
-  bring-up. Reserve the 16 GB phone for final larger-model validation.
-- An `sdkmanager` attempt to install NDK `29.0.14206865` and CMake `3.31.6` was
-  interrupted before completion; neither directory was present when checked.
-  Verify `.android-toolchain/sdk/ndk` and `cmake`, then rerun if absent.
-- The aligned `56167d0` debug build is installed on the connected 12 GB phone;
-  the four staged YOLO/SegFormer model/config files are present in its external
-  files directory. It was not launched after install, per the user's request to
-  ask them for physical feature tests rather than adding test-only UI.
+- The user's acceptance bar for Scene Mode, stated directly: **sub-7 s latency
+  always**, recognising doors, chairs, tables, bottles, bags, people and laptops,
+  and reading basic text. The 450M meets it; the 2B and 4B do not (§4.3.3).
 - One historical stash remains: `stash@{0}: Windows Android setup before
-  b1c425a handoff`. It predates the authoritative remote handoff. **Do not pop it
-  wholesale**; inspect individual paths only if something is demonstrably
-  missing. The useful Android wrapper and ignore rule are already committed.
+  b1c425a handoff`. **Do not pop it wholesale**; inspect individual paths only if
+  something is demonstrably missing.
 
-Implementation order:
+Still open beyond the hang:
 
-1. Install/verify NDK 29 and CMake. Pin an audited llama.cpp revision; do not use
-   an unvetted community AAR.
-2. Build arm64-v8a llama.cpp + `libmtmd` with `GGML_NATIVE=OFF`,
-   `GGML_CPU_KLEIDIAI=ON`, `GGML_OPENMP=OFF`, **`GGML_LLAMAFILE=ON`** (this
-   line originally said `OFF`; see the measured correction in
-   [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §4.1), and
-   `LLAMA_OPENSSL=OFF`. Add the smallest JNI boundary needed for one image plus
-   one prompt.
-3. Implement the Class-B lifecycle from `docs/SCENE_MODE_VLM.md`: check free
-   memory with the fixed 800 MB margin, load model + mmproj, run exactly one
-   inference, close every native object, verify memory reclaim, then return.
-   Cancellation/timeout must close deterministically.
-4. Bring up `LFM2.5-VL-450M` first on the current 12 GB phone, then switch the
-   same interface to the planned `LFM2.5-VL-1.6B` assets. Record URLs, licences,
-   SHA-256 values, load time, first answer, repeated answer, peak memory and
-   reclaim in `docs/SCENE_MODE_VLM.md`.
-5. Only after a fixture proves real image-question answering, replace
-   `SceneDescriber.post`. Route semantic questions about recognized text through
-   the VLM itself; do not concatenate an OCR template and call it comprehension.
-6. Keep the continuous YOLO/SegFormer safety loop isolated. The VLM is one-shot,
-   CPU-side on-device inference and is never part of the NPU claim.
-
-Upstream reference verified on 12 September 2026: llama.cpp documents Android
-arm64 cross-compilation in `docs/build.md` and multimodal inference through
-`libmtmd` / `tools/mtmd/mtmd-cli.cpp`. Re-check the pinned revision's API before
-writing JNI because this interface moves quickly.
+- `TargetLocator` still calls the dead `/vlm/locate` endpoint and reports
+  `Connection lost`. `SceneDescriber` no longer needs a network at all.
+- `nativeCancel` only stops the token loop; nothing checks it during chunk
+  evaluation, so cancellation is not yet deterministic as §5 requires.
+- **Reinstalling the app wipes its external files directory.** Re-push all six
+  staged files (four YOLO/SegFormer, two GGUF) after any `installDebug` that
+  replaces the package — this cost a debugging cycle when the models silently
+  vanished.
 
 ### Two Android packaging lessons, both paid for in debugging time
 

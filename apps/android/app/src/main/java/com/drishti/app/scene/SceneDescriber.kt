@@ -4,34 +4,35 @@ import com.drishti.app.R
 import com.drishti.app.feedback.GuidanceStrings
 import com.drishti.app.feedback.SpeechEngine
 import com.drishti.app.feedback.VoicePrompt
-import com.drishti.app.net.ApiResult
-import com.drishti.app.net.DrishtiApi
-import com.drishti.app.net.apiCall
 import com.drishti.app.walk.CameraFramePipeline
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
-import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
- * On-demand local VLM scene description / Q&A. The user speaks a question, we
- * take one still and POST it to `/api/v1/vlm/query`, then speak the answer.
+ * On-demand scene description and Q&A, answered **on the phone**. The user
+ * speaks a question, we take one still and run it through [SceneVlm], then speak
+ * the answer. There is no network call and no server.
  *
  * This is the deliberately-slow path: the caller pauses the Walk loop (mode =
  * DESCRIBING), invokes this, then resumes. It never runs automatically and never
- * shares timing with `/walk/analyze`. The backend reloads Moondream2 per request
- * so a full round-trip is typically several seconds.
+ * shares timing with the walking analysis. [SceneVlm] loads the model, answers
+ * once and frees it, so each question pays a load — that is the Class B contract
+ * in `docs/SCENE_MODE_VLM.md` §5, not an oversight.
+ *
+ * @param vlm null when the native library or the GGUF files are not present. The
+ *   feature then degrades audibly rather than silently: the user is told scene
+ *   description is unavailable instead of hearing nothing and assuming the way
+ *   ahead is clear.
  */
 class SceneDescriber(
-    private val api: DrishtiApi,
+    private val vlm: SceneVlm?,
     private val pipeline: CameraFramePipeline,
     private val speech: SpeechEngine,
     private val strings: GuidanceStrings,
     private val voice: VoicePrompt,
 ) {
-    private val jpegType = "image/jpeg".toMediaType()
-    private val textType = "text/plain".toMediaType()
 
     data class Result(val question: String, val answer: String, val totalMs: Double)
 
@@ -74,51 +75,78 @@ class SceneDescriber(
         // 2. "Working on it" is fire-and-forget: the capture + slow round-trip
         //    that follow always outlast it.
         speech.say(strings.string(R.string.vlm_working), flush = true)
-        val jpeg = pipeline.captureStill(maxWidth = 1280, quality = 85)
+        // 640 is already twice the model's 320 px bound, so the extra pixels
+        // would only be thrown away by SceneImage.
+        val jpeg = pipeline.captureStill(maxWidth = 640, quality = 85)
         if (jpeg == null) {
             speech.speakBlocking(strings.string(R.string.vlm_unavailable), maxWaitMs = 8_000L)
             return null
         }
 
-        // 3. Query. One retry if the single VLM worker is momentarily busy.
-        var attempt = post(jpeg, question)
-        if (attempt is Attempt.RetryOnce) {
-            delay(1_500)
-            attempt = post(jpeg, question)
-        }
-        return when (attempt) {
+        // 3. Answer locally. There is no "busy" state to retry: the model is
+        //    loaded for this call alone and nothing else can hold it.
+        return when (val attempt = answer(jpeg, question)) {
             is Attempt.Done -> {
                 speech.speakBlocking(attempt.text)
                 Result(question = question, answer = attempt.text, totalMs = attempt.totalMs)
             }
-            Attempt.RetryOnce -> {
-                speech.speakBlocking(strings.string(R.string.vlm_busy), maxWaitMs = 8_000L)
-                null
-            }
-            Attempt.GiveUp -> null // already voiced (blocking) in post()
+            Attempt.RetryOnce, Attempt.GiveUp -> null // already voiced (blocking)
         }
     }
 
-    private suspend fun post(jpeg: ByteArray, prompt: String): Attempt {
-        val frame = MultipartBody.Part.createFormData("frame", "scene.jpg", jpeg.toRequestBody(jpegType))
-        val promptPart = prompt.take(500).toRequestBody(textType)
-        return when (val r = apiCall { api.vlmQuery(frame, promptPart) }) {
-            is ApiResult.Ok -> Attempt.Done(r.value.text, r.value.timings.totalMs)
-            is ApiResult.Failure -> when (r.code) {
-                "CONFLICT" -> Attempt.RetryOnce
-                "REQUEST_TIMEOUT" -> {
-                    speech.speakBlocking(strings.string(R.string.vlm_timeout), maxWaitMs = 8_000L)
-                    Attempt.GiveUp
-                }
-                else -> {
-                    speech.speakBlocking(strings.string(R.string.vlm_unavailable), maxWaitMs = 8_000L)
-                    Attempt.GiveUp
-                }
+    private suspend fun answer(jpeg: ByteArray, prompt: String): Attempt {
+        val model = vlm ?: run {
+            speech.speakBlocking(strings.string(R.string.vlm_unavailable), maxWaitMs = 8_000L)
+            return Attempt.GiveUp
+        }
+
+        val image = SceneImage.fromJpeg(jpeg)
+        if (image == null) {
+            speech.speakBlocking(strings.string(R.string.vlm_unavailable), maxWaitMs = 8_000L)
+            return Attempt.GiveUp
+        }
+
+        // Inference is blocking native work; keep it off the caller's thread.
+        // The timeout cancels deterministically rather than abandoning a
+        // running generation, so the model is always freed.
+        val started = System.nanoTime()
+        val result = withTimeoutOrNull(ANSWER_TIMEOUT_MS) {
+            withContext(Dispatchers.Default) {
+                model.ask(image.rgb, image.width, image.height, prompt.take(300))
             }
-            is ApiResult.Transport -> {
-                speech.speakBlocking(strings.string(R.string.conn_lost), maxWaitMs = 8_000L)
+        } ?: run {
+            model.cancel()
+            speech.speakBlocking(strings.string(R.string.vlm_timeout), maxWaitMs = 8_000L)
+            return Attempt.GiveUp
+        }
+
+        return when (result) {
+            is SceneVlm.Result.Answer ->
+                Attempt.Done(result.text, (System.nanoTime() - started) / 1_000_000.0)
+
+            is SceneVlm.Result.NotEnoughMemory -> {
+                // Say what is true. Refusing loudly is the contract; pretending
+                // the scene is empty is the failure this exists to avoid.
+                speech.speakBlocking(strings.string(R.string.vlm_low_memory), maxWaitMs = 8_000L)
+                Attempt.GiveUp
+            }
+
+            SceneVlm.Result.Cancelled -> Attempt.GiveUp
+
+            SceneVlm.Result.ModelMissing, SceneVlm.Result.Failed -> {
+                speech.speakBlocking(strings.string(R.string.vlm_unavailable), maxWaitMs = 8_000L)
                 Attempt.GiveUp
             }
         }
+    }
+
+    private companion object {
+        /**
+         * Generous against the measured 1.4 - 2 s answer, because the floor is
+         * not the worry: a cold CPU governor after thermal throttling produced a
+         * 7.4 s run (`docs/SCENE_MODE_VLM.md` §4.5). This bounds the pathological
+         * case without cutting off a merely slow one.
+         */
+        const val ANSWER_TIMEOUT_MS = 20_000L
     }
 }

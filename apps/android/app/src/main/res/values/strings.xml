@@ -61,6 +61,7 @@
     <string name="vlm_unavailable">Scene description is not available right now.</string>
     <string name="vlm_busy">The scene assistant is busy. Try again.</string>
     <string name="vlm_timeout">That took too long. Try again.</string>
+    <string name="vlm_low_memory">Not enough free memory to describe the scene right now.</string>
     <string name="vlm_mic_denied">Microphone access is needed to ask about the scene.</string>
     <string name="vlm_card_title">SCENE</string>
 
