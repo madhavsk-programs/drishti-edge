@@ -9,6 +9,8 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import java.io.File
 import java.nio.FloatBuffer
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.ShortBuffer
 
 private const val TAG = "DrishtiProbe"
@@ -72,8 +74,8 @@ object QnnProbe {
         appendLine()
 
         // --- 2. Are the QNN backend libraries actually present? --------------
-        // The ORT AAR ships NONE of these. If this list is empty, the QAIRT
-        // libraries were never staged and every NPU attempt below WILL fail.
+        // ORT brings these transitively through qnn-runtime. See §3.5;
+        // manually staged libraries can override that runtime.
         appendLine("[2] QNN backend libraries in nativeLibraryDir")
         val qnnLibs = File(libDir).listFiles()
             ?.map { it.name }
@@ -131,10 +133,10 @@ object QnnProbe {
                 "  PARTIAL. QNN loaded but the graph did not run entirely on HTP.\n" +
                     "  Record which nodes fell back; claim only what is true (§6.2)."
             results[Backend.CPU]?.startsWith("OK") == true ->
-                "  CPU ONLY. The model and postprocessing are sound, but there is no\n" +
+                "  CPU ONLY. Synthetic inference ran; accuracy is not tested. There is no\n" +
                     "  NPU claim. Descend BUILD_PLAN.md §3.3 and record which rung held."
             else ->
-                "  NOTHING RAN. The model itself is suspect - check §3.4 and C.4a."
+                "  NOTHING RAN. Inspect model, dtype, runtime and device errors above."
         }
         appendLine(verdict)
     }
@@ -168,7 +170,11 @@ object QnnProbe {
 
                 val javaType = (s.inputInfo[inputName]!!.info as ai.onnxruntime.TensorInfo).type
                 detail.appendLine("dtype  $javaType")
-                val t = time(s, inputName, shape, javaType)
+                val fixture = File(model.parentFile, "yolo_input.f32")
+                    .takeIf { model.name.startsWith("yolo11n_") && shape.contentEquals(longArrayOf(1, 3, 640, 640)) && it.isFile }
+                detail.appendLine("input source: ${fixture?.name ?: "synthetic 0.5 (latency only)"}")
+                val t = time(s, inputName, shape, javaType, fixture,
+                    File(model.parentFile, "${model.name}.${backend.name}.f32"))
                 detail.appendLine(
                     "warmup %.1f ms | mean %.2f ms | p50 %.2f ms | min %.2f ms"
                         .format(t.warmupMs, t.meanMs, t.p50Ms, t.minMs),
@@ -178,7 +184,7 @@ object QnnProbe {
             }
         } catch (t: Throwable) {
             Log.w(TAG, "$backend failed", t)
-            "FAIL" to "FAILED: ${t::class.java.simpleName}\n${t.message?.take(400)}"
+            "FAIL" to "FAILED: ${t::class.java.simpleName}\n${t.message?.take(2000)}"
         } finally {
             runCatching { opts.close() }
         }
@@ -213,6 +219,8 @@ object QnnProbe {
         inputName: String,
         shape: LongArray,
         javaType: OnnxJavaType,
+        fixture: File?,
+        outputFile: File,
     ): Timing {
         val count = shape.fold(1L) { a, b -> a * if (b <= 0) 1 else b }.toInt()
         val dims = shape.map { if (it <= 0) 1L else it }.toLongArray()
@@ -225,12 +233,19 @@ object QnnProbe {
                 sb.rewind()
                 OnnxTensor.createTensor(env, sb, dims, javaType)
             }
-            else -> {
+            OnnxJavaType.FLOAT -> {
                 val fb = FloatBuffer.allocate(count)
-                repeat(count) { fb.put(0.5f) }
+                if (fixture != null) {
+                    val bytes = fixture.readBytes()
+                    require(bytes.size == count * 4) { "Fixture size does not match model input" }
+                    fb.put(ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer())
+                } else {
+                    repeat(count) { fb.put(0.5f) }
+                }
                 fb.rewind()
                 OnnxTensor.createTensor(env, fb, dims)
             }
+            else -> error("Unsupported probe input dtype: $javaType; use a float-IO artifact")
         }
 
         tensor.use { tensor ->
@@ -239,6 +254,17 @@ object QnnProbe {
             val warm = System.nanoTime()
             session.run(feed).close()
             val warmupMs = (System.nanoTime() - warm) / 1e6
+
+            // Only the explicitly staged public fixture is saved, never camera
+            // data. Host-side validation compares these actual device outputs.
+            if (fixture != null) {
+                session.run(feed).use { outputs ->
+                    val values = (outputs[0] as OnnxTensor).floatBuffer
+                    val bytes = ByteBuffer.allocate(values.remaining() * 4).order(ByteOrder.LITTLE_ENDIAN)
+                    bytes.asFloatBuffer().put(values)
+                    outputFile.writeBytes(bytes.array())
+                }
+            }
 
             repeat(4) { session.run(feed).close() }
 

@@ -8,6 +8,7 @@ dist/
 .gradle/
 build/
 local.properties
+.android-toolchain/
 *.apk
 *.aab
 .cxx/

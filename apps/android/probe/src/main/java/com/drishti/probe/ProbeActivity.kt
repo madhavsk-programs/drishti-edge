@@ -23,6 +23,7 @@ import kotlin.concurrent.thread
 class ProbeActivity : ComponentActivity() {
 
     private lateinit var output: TextView
+    private var running = false
 
     /**
      * Swap by pushing different files; no rebuild needed.
@@ -30,13 +31,15 @@ class ProbeActivity : ComponentActivity() {
      * rung (an EPContext model cannot run on the CPU EP at all - see QnnProbe).
      */
     private val models = listOf(
+        // Portable graph: compile against the runtime installed on this phone.
+        "yolo11n_qdq.onnx" to "yolo11n_fp32_nchw.onnx",
         // YOLO: the QNN export is an EPContext binary, QNN-EP-only and NHWC.
         // Its CPU peer must be the separate plain fp32 NCHW export.
         "yolo11n_qnn.onnx" to "yolo11n_fp32_nchw.onnx",
         // SegFormer: Qualcomm ship a plain QDQ graph (no EPContext), NCHW, which
         // runs on BOTH backends. One artifact, two EPs - so this is the cleaner
         // apples-to-apples NPU-vs-CPU comparison for BUILD_PLAN.md §6.2 proof 3.
-        "segformer_base.onnx" to "segformer_base.onnx",
+        "segformer_float.onnx" to "segformer_float.onnx",
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -76,9 +79,11 @@ class ProbeActivity : ComponentActivity() {
     }
 
     private fun runProbe() {
+        if (running) return
+        running = true
         output.text = "running..."
         thread {
-            val report = buildString {
+            val report = runCatching { buildString {
                 appendLine(deviceHeader())
                 for ((npuModel, cpuModel) in models) {
                     appendLine(QnnProbe.run(this@ProbeActivity, npuModel, cpuModel))
@@ -86,10 +91,14 @@ class ProbeActivity : ComponentActivity() {
                     appendLine("-".repeat(58))
                     appendLine()
                 }
-            }
+            } }.getOrElse { "Probe failed: ${it.stackTraceToString()}" }
             // Chunked so logcat's per-line cap does not truncate the evidence.
             report.lineSequence().forEach { Log.i("DrishtiProbe", it) }
-            runOnUiThread { output.text = report }
+            Log.i("DrishtiProbe", "PROBE_COMPLETE")
+            runOnUiThread {
+                output.text = report
+                running = false
+            }
         }
     }
 

@@ -59,7 +59,7 @@ one detector invocation (NPU)
    └── audited 19-class view
            │
            ▼
-   tracking · corridor geometry · spatial reasoning   ◄── segmentation (NPU)
+   tracking · corridor geometry · spatial reasoning   ◄── segmentation (QNN + CPU today)
            │
            ▼
    weighted risk engine
@@ -91,13 +91,14 @@ once, unload, and only then return — so no two are ever in memory together.
 | Scene questions and target locating | Optional, gated | On demand |
 
 The walking loop above **runs on the phone today** — detection, segmentation,
-tracking, risk and guidance all on-device at ~55 ms/frame on the iQOO 15, with
-no backend and no network in the path. Both models currently execute on the
-CPU; the NPU rung is implemented and gated, and reports honestly rather than
-falling back silently (`BUILD_PLAN.md` §3.5).
+tracking, risk and guidance all on-device, with no backend and no network in
+the path. YOLO11n now runs on guarded QNN HTP (**3.30 ms measured**, CPU
+fallback disabled). SegFormer is on-device and faster through QNN, but its
+guard proves that some nodes still fall back to CPU; it is not represented as
+fully NPU (`BUILD_PLAN.md` §3.5).
 
-Memory is budgeted for the **12 GB** device variant, which the confirmed 16 GB
-unit exceeds. Every model choice has a
+Memory is budgeted for the **12 GB** device variant and has now been exercised
+on both 12 GB and 16 GB iQOO 15 units. Every model choice has a
 gate and a fallback in
 [`ARCHITECTURE.md` §6](ARCHITECTURE.md#6-model-selection-and-gates); a gate that
 fails removes a capability rather than downgrading it silently.

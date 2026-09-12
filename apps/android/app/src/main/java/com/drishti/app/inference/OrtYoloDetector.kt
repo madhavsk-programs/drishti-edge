@@ -22,10 +22,11 @@ private const val TAG = "OrtYoloDetector"
 /**
  * YOLO11n through ONNX Runtime, NPU first (BUILD_PLAN.md task A6).
  *
- * Two artifacts, two layouts, one code path:
+ * Portable QDQ first, legacy context second, CPU fallback last:
  *
  * | Model | Input | Layout | Runs on |
  * |---|---|---|---|
+ * | `yolo11n_qdq.onnx` | `[1,3,640,640]` | NCHW | QNN (compile on device), CPU |
  * | `yolo11n_qnn.onnx` | `[1,640,640,3]` | NHWC | QNN EP only (EPContext) |
  * | `yolo11n_fp32_nchw.onnx` | `[1,3,640,640]` | NCHW | any EP |
  *
@@ -189,6 +190,7 @@ class OrtYoloDetector private constructor(
          *   adb push yolo11n_qnn.onnx /sdcard/Android/data/com.drishti.app/files/
          */
         const val NPU_MODEL = "yolo11n_qnn.onnx"
+        const val QDQ_MODEL = "yolo11n_qdq.onnx"
         const val CPU_MODEL = "yolo11n_fp32_nchw.onnx"
 
         /**
@@ -202,28 +204,30 @@ class OrtYoloDetector private constructor(
 
             setAdspLibraryPath(context)
 
-            val npuModel = File(modelsDir, NPU_MODEL)
-            if (npuModel.isFile) {
-                try {
-                    return open(
-                        env, npuModel, settings, InferenceBackend.NPU,
-                        "YOLO11n on the Hexagon NPU (QNN HTP, CPU fallback disabled).",
-                    ) { options ->
-                        options.addConfigEntry("session.disable_cpu_ep_fallback", "1")
-                        options.addQnn(
-                            mapOf(
-                                "backend_path" to "libQnnHtp.so",
-                                "htp_performance_mode" to "burst",
+            for (modelName in listOf(QDQ_MODEL, NPU_MODEL)) {
+                val npuModel = File(modelsDir, modelName)
+                if (npuModel.isFile) {
+                    try {
+                        return open(
+                            env, npuModel, settings, InferenceBackend.NPU,
+                            "YOLO11n on the Hexagon NPU (QNN HTP, CPU fallback disabled).",
+                        ) { options ->
+                            options.addConfigEntry("session.disable_cpu_ep_fallback", "1")
+                            options.addQnn(
+                                mapOf(
+                                    "backend_path" to "libQnnHtp.so",
+                                    "htp_performance_mode" to "burst",
+                                )
                             )
-                        )
+                        }
+                    } catch (exc: Throwable) {
+                        // Expected when the QAIRT libraries are absent or the device
+                        // is not recognised by them. Report it; do not hide it.
+                        Log.w(TAG, "$modelName NPU rung unavailable; trying next artifact", exc)
                     }
-                } catch (exc: Throwable) {
-                    // Expected when the QAIRT libraries are absent or the device
-                    // is not recognised by them. Report it; do not hide it.
-                    Log.w(TAG, "NPU rung unavailable, descending to CPU", exc)
+                } else {
+                    Log.w(TAG, "No $modelName in ${modelsDir?.absolutePath}; skipping artifact")
                 }
-            } else {
-                Log.w(TAG, "No $NPU_MODEL in ${modelsDir?.absolutePath}; skipping NPU rung")
             }
 
             val cpuModel = File(modelsDir, CPU_MODEL)

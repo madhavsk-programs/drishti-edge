@@ -12,18 +12,20 @@
 
 ---
 
-## STATE AT HANDOFF — read this first
+## CURRENT DEVICE STATE — read this first
 
 Everything below was **executed and verified**, not planned. The app runs the
-whole walking loop on the loaner iQOO 15 with no backend and no network.
+whole walking loop on iQOO 15 hardware with no backend and no network. The
+original 16 GB loaner established the end-to-end result; the current 12 GB test
+phone established the portable NPU path on the smaller production variant.
 
 ### Working on the loaner, measured
 
 | Item | State |
 |---|---|
-| **Walking loop, end to end** | **On-device.** Detection → tracking → corridors → risk → state machine → speech/haptics/overlay, **55 ms/frame** |
-| Detection | YOLO11n, **CPU rung**, correctly aligned boxes on real people and chairs |
-| Segmentation | SegFormer-B0 ADE20K, CPU, every 3rd frame. Corridors report walkable/blocked and the "surface degraded" banner clears |
+| **Walking loop, end to end** | **On-device.** Detection → tracking → corridors → risk → state machine → speech/haptics/overlay. The prior 16 GB run measured **~55 ms/frame** on the all-CPU model rung |
+| Detection | YOLO11n portable w8a16 QDQ, **guarded NPU rung**, live in the app. Real-fixture probe: **3.30 ms NPU vs 27.35 ms CPU** |
+| Segmentation | SegFormer-B0 ADE20K, every 3rd frame. QNN improves it to **12.83 ms vs 126.24 ms CPU**, but the guarded session proves that some nodes still fall back to CPU |
 | Guidance | Reaches reasoned verdicts — `CENTRE_BLOCKED_DIRECTION_UNCLEAR` with left walkable and centre blocked, not a generic pause |
 | Network in the walk path | **None.** `api.analyze`, the multipart assembly and the retry loop are deleted, not toggled |
 | Tests | **49 unit tests, 0 failures** |
@@ -85,16 +87,20 @@ Two caveats, both cost time if unknown:
   Everything under `lib/aarch64-android/` extracted with **CRC verified**.
 - Navigating the tab elsewhere **kills the transfer**. Start it and leave it.
 
-### Target device — confirmed
+### Target devices — confirmed
 
-**iQOO 15, Snapdragon 8 Elite Gen 5 (SM8850), HTP v81, 16 GB, Android 16.**
-Measured `availMem` **7,998 MB** of 15,219 MB in normal use — consistent with
-§4.2's warning not to size against the post-reboot figure.
+Both devices are **iQOO 15, Snapdragon 8 Elite Gen 5 (SM8850), HTP v81,
+Android 16**. The original loaner has 16 GB RAM and measured `availMem`
+**7,998 MB** of 15,219 MB in normal use. The current development phone has
+12 GB RAM plus 12 GB compressed swap; the probe measured **5,155 MB available
+of 11,205 MB**. Swap remains excluded from the model budget.
 
-### The one blocker — RESOLVED, and replaced by a narrower one
+### NPU status — detector resolved, segmenter still partial
 
-QAIRT libraries are no longer missing. What remains is a **version match**, and
-it is characterised precisely in [§3.5](#35-the-npu-on-real-silicon--where-it-actually-stands).
+The EPContext version blocker is gone. A portable QDQ detector compiles against
+the transitive 2.42 runtime on the phone and creates with CPU fallback disabled.
+SegFormer still has fallback nodes; it is characterised precisely in
+[§3.5](#35-the-npu-on-real-silicon--where-it-actually-stands).
 
 ### Running it
 
@@ -110,7 +116,7 @@ Models load from the app's external files dir, so swapping one needs no
 rebuild. **Note the `.debug` suffix** on debug builds:
 
 ```bash
-adb push models/staging/yolo11n_fp32_nchw.onnx models/staging/yolo11n_qnn.onnx models/staging/segformer_float.onnx models/staging/ade20k_config.json /sdcard/Android/data/com.drishti.app.debug/files/
+adb push models/staging/yolo11n_qdq.onnx models/staging/yolo11n_fp32_nchw.onnx models/staging/segformer_float.onnx models/staging/ade20k_config.json /sdcard/Android/data/com.drishti.app.debug/files/
 ```
 
 ```bash
@@ -127,7 +133,7 @@ adb logcat -s WalkController:* OrtYoloDetector:* SegFormer:* LocalWalkPipeline:*
 - [3. The runtime decision](#3-the-runtime-decision)
   - [**3.4 The QNN backend libraries are NOT in the AAR**](#34-the-qnn-backend-libraries-are-not-in-the-aar--verified)
   - [**3.5 The NPU on real silicon — where it stands**](#35-the-npu-on-real-silicon--where-it-actually-stands)
-- [4. The variant — RESOLVED: 16 GB](#4-the-variant--resolved-16-gb)
+- [4. Device variants — 12 GB and 16 GB measured](#4-device-variants--12-gb-and-16-gb-measured)
 - [5. The playground device](#5-the-playground-device)
 - [6. Office Kit and proving on-device AI](#6-office-kit-and-proving-on-device-ai)
 - [PART 0 — Laptop preparation (T−14 h → T−0)](#part-0--laptop-preparation-t14-h--t0)
@@ -354,7 +360,7 @@ on the phone, what the laptop pipeline already does indoors. Point by point:
 | Demo beat | Depends on | Verdict |
 |---|---|---|
 | Walk a corridor, hear obstacle guidance | YOLO11n on NPU | **Yes.** 2.27 ms, same labels, same canonicalization, same 19-class audited view. |
-| "Wall ahead", "stairs ahead", floor polygon | SegFormer-B0 ADE20K on NPU | **Yes.** Identical checkpoint, identical 150 classes, 5.66 ms. The indoor semantics the laptop model produces are the indoor semantics the phone model produces. |
+| "Wall ahead", "stairs ahead", floor polygon | SegFormer-B0 ADE20K | **Yes on-device; full-NPU placement still open.** Identical checkpoint and 150 classes. Current QNN execution is 12.83 ms but the fallback guard proves some nodes remain on CPU. |
 | Obstacle centre → "move left" | Corridor geometry + risk engine, pure Kotlin | **Yes,** and it is a port under golden-vector parity, not a reimplementation. |
 | Camera covered → `PAUSE_UNCLEAR` | Risk cascade, pure Kotlin | **Yes.** |
 | Find the bottle I walked past | Landmark memory from the full-COCO view | **Yes,** no extra inference, no VLM. |
@@ -635,6 +641,28 @@ account. One signup, one download, done once, entirely within Part 0.
 > backend libraries. That was true of the AAR's own payload and is **false of
 > its dependency graph**, which changes the problem completely.
 
+#### Result on 12 September 2026: portable YOLO QDQ succeeds
+
+Option C below was executed. [`tools/export_yolo_qdq.py`](tools/export_yolo_qdq.py)
+exports a static, float-IO YOLO11n graph with w8a16 QDQ nodes and **no
+`EPContext`**, calibrated on 128 real COCO128 images using the app's exact RGB
+letterbox. Artifact SHA-256:
+`ec71f1a401dc341293a765f8f3c47749878595e7ea979e1dffeb91b0bce3dac2`.
+
+On the current 12 GB iQOO 15, the session creates with
+`session.disable_cpu_ep_fallback=1` and runs at **3.30 ms mean** (guarded QNN
+HTP) versus **27.35 ms mean** (plain FP32 CPU). A public COCO fixture produced
+five detections on both paths with identical classes, box IoU **0.926–0.991**,
+and maximum confidence drift **0.068**. The app then loaded the same artifact
+on its guarded NPU rung in live Walk Mode. This proves execution placement and
+one integration fixture; it is **not** an mAP or field-safety evaluation.
+
+SegFormer remains narrower work: its float-IO QDQ graph measures **12.83 ms**
+with unguarded QNN versus **126.24 ms** on CPU, but guarded session creation
+fails because some nodes are assigned to the CPU EP. Therefore detection is
+fully on HTP; segmentation is mixed QNN/CPU; an "all models on the NPU" claim
+is not yet valid.
+
 #### Correction: the AAR does bring backend libraries, transitively
 
 `onnxruntime-android-qnn:1.29.0` pulls **`qnn-runtime:2.42.0`** as a transitive
@@ -665,16 +693,17 @@ and with `soc_model=87`. SM8850 is very new silicon and 2.50.0 was built
 2026-08-28; the most economical explanation is that this QAIRT does not yet
 know this SoC.
 
-**So the NPU is one version match away, not one unknown away.** The DSP is
-reachable, the skel loads, a process domain is created. The only thing that
-fails is loading an EPContext binary compiled for **2.50.40** into a **2.42.0**
-runtime.
+**That experiment established that the NPU was one artifact change away, not
+one unknown away.** The DSP was reachable, the skel loaded, and a process
+domain was created. The EPContext binary alone failed because it was compiled
+for **2.50.40** and loaded into a **2.42.0** runtime. The portable QDQ result
+above subsequently removed that mismatch.
 
-#### The next work, in preference order
+#### The route taken, and remaining historical alternatives
 
-**Option C is the recommendation.** A and B chase a version pin; C removes it.
+**Option C is complete.** A and B chased a version pin; C removed it.
 
-**C — export YOLO11n as a plain QDQ graph instead of an EPContext binary.**
+**C — DONE: export YOLO11n as a plain QDQ graph instead of an EPContext binary.**
 An EPContext model is a *precompiled* context blob and is therefore welded to
 the QAIRT that compiled it — that weld is the entire failure above. A QDQ graph
 carries no compiled context: `libQnnHtpPrepare.so` (already in the APK, 80 MB
@@ -702,7 +731,7 @@ forever, which is why it ranks below C.
 
 #### How to verify, whichever path
 
-The probe already answers this without touching the app. It reports honestly
+The probe answers this without relying on the app. It reports honestly
 rather than inferring from speed:
 
 ```bash
@@ -713,21 +742,21 @@ cd apps/android && ./gradlew :probe:installDebug && adb shell am start -n com.dr
 adb logcat -d | grep -iE "onnxruntime|qnn" | grep -v DrishtiProbe
 ```
 
-`session.disable_cpu_ep_fallback = "1"` is already set on the NPU rung in both
-the probe and `OrtYoloDetector`, so a silent CPU fallback is impossible: the
-session either runs on the NPU or throws. **The NPU claim stays unmade until
-that session creates.** Until then the honest statement is the one the app
-already logs — detection and segmentation run **on-device on the CPU**, which
-is itself on-device AI, and the NPU is not being claimed.
+`session.disable_cpu_ep_fallback = "1"` is set on the NPU rung in both the probe
+and `OrtYoloDetector`, so a silent CPU fallback is impossible. It creates for
+portable YOLO QDQ and throws for the current SegFormer graph. The honest claim
+is correspondingly split: **YOLO detection is on the Hexagon NPU;
+segmentation is on-device with a measured CPU fallback.**
 
 ---
 
-## 4. The variant — RESOLVED: 16 GB
+## 4. Device variants — 12 GB and 16 GB measured
 
-> **The loaner is in hand: iQOO 15, Snapdragon 8 Elite Gen 5, 16 GB.** This
-> section was a fork; it is now a record. `ARCHITECTURE.md` §4.1's insistence that
-> every MUST-tier item fit 12 GB did its job — the plan never depended on winning
-> this coin flip, and the headroom is now pure slack.
+> **Both iQOO 15 variants are now in hand.** The original loaner has 16 GB; the
+> current development phone has 12 GB RAM plus compressed swap. The guarded
+> YOLO NPU path is proven on the 12 GB unit, so the 16 GB phone is not required
+> again until on-demand Scene/VLM work begins. `ARCHITECTURE.md` §4.1's rule
+> that every MUST-tier item fit 12 GB remains the controlling budget.
 
 **It touched exactly one capability, and that capability is Scene Mode.**
 
