@@ -176,14 +176,16 @@ fun selectAction(
     }
 
     val highest = assessments.maxByOrNull { it.score }
-    if (highest != null && highest.level in setOf(RiskLevel.WARN, RiskLevel.HIGH)) {
+    val subject = cautionSubject(highest, centreAssessments)
+    if (subject != null) {
         return ProposedDecision(
             action = GuidanceAction.CAUTION,
             level = RiskLevel.WARN,
             reasonCode = "OBSTACLE_NEARBY",
             preferredCorridor = CorridorChoice.CENTRE,
             evidenceScore = highestScore,
-            blockingLabel = highest.spatial.tracked.detection.label,
+            blockingLabel = subject.spatial.tracked.detection.label
+                .takeIf { nameSupport(subject) >= BLOCKING_LABEL_MIN_CONFIDENCE },
         )
     }
     return ProposedDecision(
@@ -193,6 +195,46 @@ fun selectAction(
         preferredCorridor = CorridorChoice.CENTRE,
         evidenceScore = highestScore,
     )
+}
+
+/**
+ * The obstacle a CAUTION is about, or null when the frame does not warrant one.
+ *
+ * The score is the primary test, unchanged. The second clause exists because the
+ * score cannot represent this case: `path_overlap` is CONTAINMENT — the share of
+ * the box that falls inside the corridor — and it is the heaviest term in the
+ * score at 0.30. A large obstacle close to the lens overflows the corridor on
+ * every side, so its containment COLLAPSES exactly as it gets dangerous. The
+ * corridor cost was given a separate obstruction measure for this reason; the
+ * score still carries the Python one, because `spatial.json` pins it.
+ *
+ * Measured on frame 297 of a captured walk: an office chair two metres dead
+ * ahead, `chair` at 0.90, proximity IMMEDIATE, filling a third of the corridor —
+ * containment 0.366, score 0.518, which is WATCH. Corridor cost 0.362 against a
+ * 0.40 gate, and free floor 0.557 because the chair's mesh back lets the carpet
+ * through. Three independent signals all landed just under their thresholds and
+ * the banner read WALKING. Nine of 180 CLEAR frames in that capture had
+ * something near and dead ahead.
+ *
+ * So: an obstacle at IMMEDIATE proximity, inside the centre path, above the
+ * watch band, is worth a word even when its score has not reached WARN. CAUTION
+ * and not a blocked-centre verdict deliberately — IMMEDIATE is estimated from
+ * apparent size and base height, it reads a chair at two metres as immediate,
+ * and a mis-estimated band must not be able to stop someone dead.
+ */
+private fun cautionSubject(
+    highest: RiskAssessment?,
+    centreAssessments: List<RiskAssessment>,
+): RiskAssessment? {
+    if (highest != null && highest.level in setOf(RiskLevel.WARN, RiskLevel.HIGH)) {
+        return highest
+    }
+    return centreAssessments
+        .filter {
+            it.spatial.proximity.band == ProximityBand.IMMEDIATE &&
+                it.level != RiskLevel.CLEAR
+        }
+        .maxByOrNull { it.score }
 }
 
 /**

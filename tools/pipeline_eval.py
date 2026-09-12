@@ -677,7 +677,10 @@ def select_action(analysis: Analysis, s: Settings):
     if CENTRE in a.uncertain:
         return "PAUSE_UNCLEAR", "WARN", "CENTRE_SURFACE_UNCERTAIN"
     top = max(a.tracks, key=lambda t: t.score, default=None)
-    if top and top.level in ("WARN", "HIGH"):
+    close_ahead = max((t for t in centre_tracks
+                       if t.band == "IMMEDIATE" and t.level != "CLEAR"),
+                      key=lambda t: t.score, default=None)
+    if (top and top.level in ("WARN", "HIGH")) or close_ahead:
         return "CAUTION", "WARN", "OBSTACLE_NEARBY"
     return "CLEAR", (top.level if top else "CLEAR"), ("LOW_RISK_MONITORED" if top else "PATH_CLEAR")
 

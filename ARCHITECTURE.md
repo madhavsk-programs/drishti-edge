@@ -1249,6 +1249,43 @@ a name supported below 0.50 — between the 0.35 gate that decides an obstacle
 exists and the 0.64-0.80 the detector produces when it actually recognises
 something. Below that the verdict is unnamed, not wrong.
 
+### 12.2.8 Containment collapses exactly when an obstacle gets dangerous
+
+Found by auditing a 300-frame live capture: an office chair two metres dead
+ahead, `chair` at 0.90, proximity IMMEDIATE, filling a third of the corridor —
+and the banner read WALKING. Nine of that capture's 180 CLEAR frames had
+something near and dead ahead.
+
+Four signals landed just under their thresholds, and they are not independent
+accidents:
+
+| signal | value | gate |
+| --- | --- | --- |
+| `path_overlap` (containment) | 0.366 | 0.25 to count as centre |
+| risk score | 0.518 (WATCH) | 0.65 for WARN |
+| corridor centre cost | 0.362 | 0.40 |
+| centre free floor | 0.557 | 0.20 |
+
+The root cause is the first row. `path_overlap` is CONTAINMENT — the share of the
+BOX that falls inside the corridor — and it is the heaviest term in the risk
+score at 0.30. A large obstacle close to the lens overflows the corridor on every
+side, so its containment **collapses as it becomes dangerous**. §12.2.1 gave the
+corridor cost a separate obstruction measure for exactly this reason; the risk
+score still carries the Python one, because `spatial.json` pins it. The free
+floor reading of 0.557 has its own cause worth remembering: a mesh chair back
+lets the carpet through, so segmentation genuinely sees floor where the chair is.
+
+So the CAUTION branch was widened, not moved: an obstacle at IMMEDIATE proximity,
+inside the centre path, above the watch band, is worth a word even when its score
+has not reached WARN. CAUTION rather than a blocked-centre verdict is deliberate
+— IMMEDIATE is estimated from apparent size and base height and reads a chair at
+two metres as immediate, and a band that eager must not be able to stop someone
+dead. The containment gate of 0.25 is untouched, so golden vector
+`centre_object_below_overlap_gate_not_blocking` still holds.
+
+Measured over the same 300 frames: five frames move from CLEAR to CAUTION and
+nothing else changes.
+
 ### 12.3 Why the cascade, and why uncertainty is not danger
 
 Rules 1–3 are *evidence-specific* and bypass ordinary scoring because an
