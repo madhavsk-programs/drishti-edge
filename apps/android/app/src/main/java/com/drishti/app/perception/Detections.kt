@@ -9,7 +9,16 @@ package com.drishti.app.perception
  * bytes the pipeline does not need.
  */
 
-/** The 19 audited labels that are allowed to reach the safety engine. */
+/**
+ * The audited labels that are allowed to reach the safety engine.
+ *
+ * The list is an allowlist because a COCO label reaching the risk cascade is a
+ * claim that the system understands how that object behaves in a walking path.
+ * It began at 19 and was missing obstacles a walker genuinely has to be warned
+ * about: `truck` and `train` (both also absent from `VEHICLE_LABELS`, so an
+ * approaching lorry could not raise `APPROACHING_VEHICLE_CENTRE` at all), `dog`,
+ * and the fixed street furniture people walk into.
+ */
 val CANONICAL_LABELS: Set<String> = setOf(
     "person",
     "chair",
@@ -19,6 +28,13 @@ val CANONICAL_LABELS: Set<String> = setOf(
     "motorcycle",
     "car",
     "bus",
+    "truck",
+    "train",
+    "dog",
+    "fire hydrant",
+    "stop sign",
+    "parking meter",
+    "traffic light",
     "bench",
     // `door` is NOT a COCO class. It is kept for parity with the Python source;
     // the deployed detector cannot produce it and the system does not claim

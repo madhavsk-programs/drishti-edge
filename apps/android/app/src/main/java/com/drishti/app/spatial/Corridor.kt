@@ -29,6 +29,7 @@ data class SpatialTrack(
     val tracked: TrackedDetection,
     val proximity: RelativeProximity,
     val direction: Direction,
+    /** [pathObstruction], not [bboxPathOverlap] — see the note on that function. */
     val pathOverlap: Double,
 )
 
@@ -59,6 +60,13 @@ data class CorridorAnalysis(
     val floorExtents: CorridorCosts,
     val stairsRatios: CorridorCosts,
     val wallDeadEnd: Boolean,
+    /**
+     * Whether [floorExtents], [wallRatios] and [stairsRatios] were MEASURED.
+     * Without it a zeroed map is indistinguishable from "no floor ahead", and
+     * every rule that reads free space would fire a phantom STOP the moment
+     * segmentation dropped out.
+     */
+    val hasSurfaces: Boolean,
 )
 
 /**
@@ -129,19 +137,63 @@ fun directionForAnchor(x: Double, y: Double, settings: PipelineSettings): Direct
     }
 }
 
+/**
+ * Fraction of the DETECTION that falls inside the walking corridor.
+ *
+ * This is the verbatim Python measure and the one the `spatial.json` vectors
+ * pin. It answers "how much of this object is in my path", which is only half
+ * the question — see [pathObstruction], which is what production reads.
+ */
 fun bboxPathOverlap(detection: DetectionCandidate, settings: PipelineSettings): Double {
     val bbox = bboxPolygon(detection)
     val bboxArea = max(
         1e-6,
         (detection.x2 - detection.x1) * (detection.y2 - detection.y1),
     )
-    val fullCorridor = listOf(
-        Pair(0.5 - settings.corridorTopHalfWidth, settings.corridorHorizonY),
-        Pair(0.5 + settings.corridorTopHalfWidth, settings.corridorHorizonY),
-        Pair(0.5 + settings.corridorBottomHalfWidth, 1.0),
-        Pair(0.5 - settings.corridorBottomHalfWidth, 1.0),
+    return min(1.0, max(0.0, intersectionArea(bbox, fullCorridorPolygon(settings)) / bboxArea))
+}
+
+/**
+ * How much this detection obstructs the walking corridor.
+ *
+ * Containment ALONE (`intersection / bboxArea`, i.e. [bboxPathOverlap]) inverts
+ * the safety signal for close obstacles, and that inversion is why an office
+ * chair filling the viewfinder was reported as a clear path. The corridor covers
+ * ~31% of the frame, so a box spanning the whole frame scores 0.31 while a bag
+ * the size of a fist sitting inside the corridor scores 1.00: the nearer and
+ * larger the hazard, the *lower* its measured overlap.
+ *
+ * Occlusion (`intersection / corridorArea`) answers the complementary question —
+ * "how much of my path does this object cover" — and saturates exactly where
+ * containment collapses. Either reaching 1.0 means the path is obstructed, so
+ * the obstruction measure is the larger of the two. It can only ever raise a
+ * value relative to the Python original, never lower one, so no obstacle that
+ * used to be reported becomes invisible.
+ */
+fun pathObstruction(detection: DetectionCandidate, settings: PipelineSettings): Double =
+    obstruction(bboxPolygon(detection), detection, fullCorridorPolygon(settings))
+
+private fun fullCorridorPolygon(settings: PipelineSettings): Polygon = listOf(
+    Pair(0.5 - settings.corridorTopHalfWidth, settings.corridorHorizonY),
+    Pair(0.5 + settings.corridorTopHalfWidth, settings.corridorHorizonY),
+    Pair(0.5 + settings.corridorBottomHalfWidth, 1.0),
+    Pair(0.5 - settings.corridorBottomHalfWidth, 1.0),
+)
+
+/** max(contained fraction of the box, occluded fraction of [region]). */
+private fun obstruction(
+    bbox: Polygon,
+    detection: DetectionCandidate,
+    region: Polygon,
+): Double {
+    val intersection = intersectionArea(bbox, region)
+    if (intersection <= 0.0) return 0.0
+    val bboxArea = max(
+        1e-6,
+        (detection.x2 - detection.x1) * (detection.y2 - detection.y1),
     )
-    return min(1.0, max(0.0, intersectionArea(bbox, fullCorridor) / bboxArea))
+    val regionArea = max(1e-6, shoelaceArea(region))
+    return min(1.0, max(intersection / bboxArea, intersection / regionArea))
 }
 
 fun analyzeCorridors(
@@ -167,16 +219,12 @@ fun analyzeCorridors(
                     detection.y2,
                     settings,
                 ),
-                pathOverlap = bboxPathOverlap(detection, settings),
+                pathOverlap = pathObstruction(detection, settings),
             )
-        )
-        val bboxArea = max(
-            1e-6,
-            (detection.x2 - detection.x1) * (detection.y2 - detection.y1),
         )
         for (choice in CORRIDOR_ORDER) {
             val polygon = polygons.getValue(choice)
-            val overlap = intersectionArea(bboxPolygon(detection), polygon) / bboxArea
+            val overlap = obstruction(bboxPolygon(detection), detection, polygon)
             val contribution = min(
                 1.0,
                 overlap * (0.35 + 0.65 * proximity.score) * detection.confidence,
@@ -265,10 +313,16 @@ fun analyzeCorridors(
             settings.riskSideBlockThreshold
         }
 
+    // Green means "I can see floor continuing ahead", not "there is floor
+    // somewhere in this trapezoid". The corridor is a perspective wedge whose
+    // area is dominated by the metre of ground at the user's feet, so the
+    // walkable RATIO alone stays high with a chair filling the rest of it; the
+    // free-space extent is what actually distinguishes the two.
     val safe = if (
         preferred in polygons &&
         preferred in walkableChoices &&
-        costs.getValue(preferred) < blockThreshold(preferred)
+        costs.getValue(preferred) < blockThreshold(preferred) &&
+        (surfaces == null || floorExtents.getValue(preferred) >= settings.directionMinFreeExtent)
     ) {
         listOf(polygons.getValue(preferred))
     } else {
@@ -294,6 +348,7 @@ fun analyzeCorridors(
         floorExtents = floorCorridorExtents,
         stairsRatios = stairsCorridorRatios,
         wallDeadEnd = wallDeadEnd,
+        hasSurfaces = surfaces != null,
     )
 }
 

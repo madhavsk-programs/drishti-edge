@@ -484,10 +484,22 @@ semantics the deployed model cannot produce.
 
 | Existing `SurfaceKind` | ADE20K sources |
 |---|---|
-| `WALKABLE` | floor, road, sidewalk, path, rug, earth |
-| `ROAD` | road, highway (kept separate — road is walkable-but-dangerous) |
-| `NON_WALKABLE` | wall, building, furniture, stairs, water, fence |
+| `WALKABLE` | floor, sidewalk, path, rug, grass, earth, field, sand, land, dirt track |
+| `ROAD` | road (kept separate — road is walkable-but-dangerous) |
+| `NON_WALKABLE` | wall, building, furniture, appliances, vehicles, people, plants, stairs, water, fence |
 | `UNKNOWN` | everything else, and low-confidence pixels |
+
+The mapping has to cover the vocabulary, not a sample of it. The first version
+named 36 of ADE20K's 150 classes, so 114 fell through to `UNKNOWN` — including
+`swivel chair`, `coffee table`, `counter`, `bench`, `refrigerator` and `river`.
+`UNKNOWN` is charged at `surface_cost_unknown_weight` 0.10 against a 0.40 block
+threshold, so a corridor filled wall-to-wall by an office chair cost 0.10 and the
+path read **clear**. `UNKNOWN` is the right default for a label nobody has
+audited; it is the wrong answer for a class the model names confidently and a
+walker would collide with. Overhead classes (`ceiling`, `chandelier`, `lamp`,
+`awning`, `canopy`, `sky`) stay out of `NON_WALKABLE` deliberately: they are
+above head height, and blocking on them would stop the user under every lit
+corridor.
 
 ### 6.3 OCR
 
@@ -1022,7 +1034,7 @@ The frame decision is produced by an ordered rule cascade, and the order is the
 behaviour. Port it in this sequence:
 
 1. **Critical approaching vehicle in the corridor** — a `bicycle`, `motorcycle`,
-   `car`, or `bus` above `risk_critical_path_overlap` 0.60,
+   `car`, `bus`, `truck` or `train` above `risk_critical_path_overlap` 0.60,
    `risk_critical_proximity` 0.70, and `risk_critical_approach` 0.15 →
    `STOP` / `CRITICAL` / `APPROACHING_VEHICLE_CENTRE`, carrying the offending
    track ids.
@@ -1039,6 +1051,45 @@ behaviour. Port it in this sequence:
 8. **Highest-scoring detection at `WARN` or `HIGH`** → `CAUTION` / `WARN` /
    `OBSTACLE_NEARBY`.
 9. Otherwise → `CLEAR` / `PATH_CLEAR`.
+
+### 12.2.1 What "blocked" measures
+
+A corridor counts as blocked when any of three things is true, and each exists
+because the other two miss a real case.
+
+**Obstruction by a detection.** `max(intersection / bbox_area,
+intersection / corridor_area)`. Containment alone — the original
+`intersection / bbox_area` — inverts the signal for exactly the obstacles that
+matter most. The corridor covers ~31% of the frame, so a box spanning the whole
+frame scores 0.31 while a bag the size of a fist inside the corridor scores 1.00:
+the nearer and larger the hazard, the *lower* its measured overlap. Measured on
+the reported failures, a chair filling 91% of the frame at arm's length produced
+a centre cost of **0.068** against a 0.40 block threshold. Occlusion answers the
+complementary question — how much of the path this object covers — and saturates
+precisely where containment collapses. Taking the larger of the two can only
+raise a value, never lower one, so nothing that used to be reported becomes
+invisible.
+
+**Non-walkable surface.** `non_walkable_ratio` plus the weighted road and unknown
+ratios, as before, now over a taxonomy that covers the whole ADE20K vocabulary
+(§6.2).
+
+**No floor running ahead.** `floor_extent` at or below `freespace_blocked_max`
+0.20. Free space is the one blocking signal that does not depend on *naming* the
+obstacle, and it used to be read by a single rule — `wall_dead_end` — gated on
+`wall_ratio >= 0.35`. A chair, a desk, a parked car or a crowd could reduce the
+floor ahead to nothing and the cascade had no branch to take, because none of
+them is a wall. This feeds the existing left/centre/right blocked flags rather
+than adding a tenth rule: no branch moves, and the cascade already knows what to
+do with a blocked corridor. It is gated on segmentation actually having run —
+without it the extents are zeros, and reading those as "no floor ahead" would
+stop the user on an empty pavement.
+
+The green "safe corridor" overlay is gated on the same free-space measure. The
+corridor is a perspective wedge whose pixel budget is dominated by the metre of
+ground at the user's feet, so a walkable *ratio* stays high with an obstacle
+filling everything above ankle height. Green has to mean floor continuing ahead,
+not floor somewhere in the wedge.
 
 ### 12.3 Why the cascade, and why uncertainty is not danger
 

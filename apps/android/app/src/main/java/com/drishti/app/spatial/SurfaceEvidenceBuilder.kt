@@ -92,6 +92,16 @@ object SurfaceEvidenceBuilder {
      * Measuring from the base is the point: a floor that is visible near the
      * user's feet but interrupted further out is a short extent, and that is
      * exactly the "wall or dead end ahead" evidence the cascade needs.
+     *
+     * Only columns that span at least [MIN_COLUMN_SPAN_RATIO] of the corridor's
+     * tallest column are counted. A corridor is a perspective TRAPEZOID: its
+     * outer columns are clipped to a sliver near the bottom of the frame, where
+     * the ground at the user's feet is almost always floor, so each of them
+     * reports an extent near 1.0. Those slivers outnumber the full-height
+     * columns roughly five to one at the corridor's proportions, so an unfiltered
+     * median read ~1.0 — "clear all the way ahead" — with a chair pressed
+     * against the lens. A column has to run most of the corridor's depth before
+     * it can say anything about how far ahead the floor continues.
      */
     private fun floorExtent(
         mask: BooleanArray,
@@ -99,7 +109,9 @@ object SurfaceEvidenceBuilder {
     ): Double {
         val width = segmentation.width
         val height = segmentation.height
-        val extents = ArrayList<Double>(width)
+        val spans = IntArray(width)
+        val bottoms = IntArray(width) { -1 }
+        val tops = IntArray(width) { -1 }
         for (x in 0 until width) {
             var top = -1
             var bottom = -1
@@ -110,13 +122,26 @@ object SurfaceEvidenceBuilder {
                 }
             }
             if (top < 0) continue
+            tops[x] = top
+            bottoms[x] = bottom
+            spans[x] = bottom - top + 1
+        }
+        val tallest = spans.maxOrNull() ?: 0
+        if (tallest <= 0) return 0.0
+        val minimumSpan = (tallest * MIN_COLUMN_SPAN_RATIO).toInt().coerceAtLeast(1)
+
+        val extents = ArrayList<Double>(width)
+        for (x in 0 until width) {
+            if (spans[x] < minimumSpan) continue
+            val bottom = bottoms[x]
+            val top = tops[x]
             var run = 0
             for (y in bottom downTo top) {
                 val index = y * width + x
                 if (!mask[index] || segmentation.kind[index] != SurfaceKind.WALKABLE.ordinal) break
                 run++
             }
-            extents.add(run.toDouble() / maxOf(1, bottom - top + 1))
+            extents.add(run.toDouble() / spans[x])
         }
         if (extents.isEmpty()) return 0.0
         extents.sort()
@@ -127,6 +152,9 @@ object SurfaceEvidenceBuilder {
             extents[middle]
         }
     }
+
+    /** Share of the corridor's depth a column must span to be measured. */
+    internal const val MIN_COLUMN_SPAN_RATIO = 0.80
 
     /** Convex polygon fill; the corridor shapes are always convex quads. */
     private fun rasterize(polygon: List<Pair<Double, Double>>, width: Int, height: Int): BooleanArray {

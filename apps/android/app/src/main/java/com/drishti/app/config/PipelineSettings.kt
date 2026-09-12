@@ -41,6 +41,15 @@ data class PipelineSettings(
     val surfaceCostUnknownWeight: Double = 0.10,
     val freespaceDeadEndMax: Double = 0.12,
     val freespaceSideOpenMin: Double = 0.30,
+    /**
+     * Below this share of visible floor running ahead, a corridor counts as
+     * blocked no matter what is doing the blocking. Set above
+     * [freespaceDeadEndMax] because that one gates the much stronger
+     * `WALL_OR_DEAD_END_AHEAD` STOP, while this one only marks a corridor
+     * blocked and lets the cascade choose between steering, pausing and
+     * stopping.
+     */
+    val freespaceBlockedMax: Double = 0.20,
     val directionMinFreeExtent: Double = 0.35,
     val stairsCentreRatioThreshold: Double = 0.08,
 
@@ -92,6 +101,9 @@ data class PipelineSettings(
         ) {
             "Proximity bands must be strictly increasing"
         }
+        require(freespaceDeadEndMax <= freespaceBlockedMax) {
+            "freespaceDeadEndMax must not exceed freespaceBlockedMax"
+        }
     }
 
     companion object {
@@ -104,6 +116,13 @@ data class PipelineSettings(
             "motorcycle" to 1.0,
             "car" to 0.95,
             "bus" to 1.0,
+            "truck" to 1.0,
+            "train" to 1.0,
+            "dog" to 0.60,
+            "fire hydrant" to 0.70,
+            "stop sign" to 0.70,
+            "parking meter" to 0.70,
+            "traffic light" to 0.70,
             "bench" to 0.65,
             "door" to 0.80,
             "suitcase" to 0.65,

@@ -11,14 +11,25 @@ import com.drishti.app.spatial.CorridorCosts
 import kotlin.math.max
 
 /**
- * Kotlin port of `app/risk/rules.py` (BUILD_PLAN.md task A4).
+ * The decision cascade, grown from `app/risk/rules.py` (BUILD_PLAN.md task A4).
  *
- * The order of the cascade is the safety contract. Reordering these branches
- * changes what the system says to a blind user, so the sequence below is a
- * verbatim port and the golden vectors pin every branch.
+ * The ORDER of the cascade is the safety contract. Reordering these branches
+ * changes what the system says to a blind user, so the sequence is the Python
+ * sequence and the golden vectors pin every branch of it.
+ *
+ * One thing has been ADDED rather than reordered: a corridor with no visible
+ * floor running ahead now counts as blocked (see [noFloorAhead]). It feeds the
+ * existing left/centre/right blocked flags, so no branch moved and every
+ * `risk.json` vector still holds.
  */
 
-val VEHICLE_LABELS: Set<String> = setOf("bicycle", "motorcycle", "car", "bus")
+/**
+ * Labels that can raise `APPROACHING_VEHICLE_CENTRE`, the one CRITICAL branch
+ * that bypasses the alert cooldown. `truck` and `train` belong here for the
+ * obvious reason and were missing.
+ */
+val VEHICLE_LABELS: Set<String> =
+    setOf("bicycle", "motorcycle", "car", "bus", "truck", "train")
 
 data class ProposedDecision(
     val action: GuidanceAction,
@@ -78,12 +89,15 @@ fun selectAction(
         it.spatial.direction == Direction.CENTRE && it.spatial.pathOverlap >= 0.25
     }
     val centreBlocked = corridor.costs.centreCost >= settings.riskCentreBlockThreshold ||
+        noFloorAhead(corridor, CorridorChoice.CENTRE, settings) ||
         centreAssessments.any {
             it.level in setOf(RiskLevel.WARN, RiskLevel.HIGH) &&
                 it.spatial.proximity.band in setOf(ProximityBand.NEAR, ProximityBand.IMMEDIATE)
         }
-    val leftBlocked = corridor.costs.leftCost >= settings.riskSideBlockThreshold
-    val rightBlocked = corridor.costs.rightCost >= settings.riskSideBlockThreshold
+    val leftBlocked = corridor.costs.leftCost >= settings.riskSideBlockThreshold ||
+        noFloorAhead(corridor, CorridorChoice.LEFT, settings)
+    val rightBlocked = corridor.costs.rightCost >= settings.riskSideBlockThreshold ||
+        noFloorAhead(corridor, CorridorChoice.RIGHT, settings)
 
     val immediateCentre = centreAssessments.any {
         it.spatial.proximity.band == ProximityBand.IMMEDIATE
@@ -163,6 +177,30 @@ fun selectAction(
         evidenceScore = highestScore,
     )
 }
+
+/**
+ * No visible floor running ahead in this corridor.
+ *
+ * Free space is the one blocking signal that does not depend on NAMING the
+ * obstacle, and until now the only rule that read it was `wallDeadEnd`, gated on
+ * `wallRatio >= 0.35`. So a chair, a desk, a parked car or a crowd could reduce
+ * the floor ahead to nothing and the cascade still had no branch to take: none
+ * of them is a wall. This closes that gap, and it does so by feeding the
+ * EXISTING left/centre/right blocked flags rather than adding a fourth STOP
+ * branch — a corridor with no floor ahead is blocked, and the audited cascade
+ * already knows what to do with a blocked corridor.
+ *
+ * Gated on [CorridorAnalysis.hasSurfaces]: without segmentation the extents are
+ * zeros, and reading those as "no floor ahead" would STOP the user on an empty
+ * pavement (docs/SAFETY_RULES.md — uncertainty and danger are different
+ * answers).
+ */
+private fun noFloorAhead(
+    corridor: CorridorAnalysis,
+    choice: CorridorChoice,
+    settings: PipelineSettings,
+): Boolean = corridor.hasSurfaces &&
+    corridor.floorExtents.valueFor(choice) <= settings.freespaceBlockedMax
 
 private fun clearerSide(corridor: CorridorAnalysis, decisionMargin: Double): CorridorChoice {
     val left = corridor.costs.leftCost

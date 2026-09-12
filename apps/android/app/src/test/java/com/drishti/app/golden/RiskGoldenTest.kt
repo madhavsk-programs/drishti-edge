@@ -161,6 +161,9 @@ class RiskGoldenTest {
                             corridorSpec.arr("stairs_ratios").map { it.jsonPrimitive.content.toDouble() },
                         ),
                         wallDeadEnd = corridorSpec.bool("wall_dead_end"),
+                        // Every vector carries measured floor extents, so the
+                        // Python they were exported from had segmentation.
+                        hasSurfaces = true,
                     )
 
                     val actual = selectAction(assessments, corridor, settings)
