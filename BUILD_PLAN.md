@@ -743,6 +743,20 @@ both verdicts read `NPU CONFIRMED`:
 | `yolo11n_qdq.onnx` | **3.40 ms** | 34.36 ms | 3.30 / 27.35 |
 | `segformer_float.onnx` | **11.69 ms** | 146.45 ms | 11.33 / 150.25 |
 
+The app itself then opened both resident sessions on the guarded rung and ran
+the live loop, so this is the whole walking pipeline and not two isolated
+benchmarks:
+
+```
+WalkController: detector ready on NPU: YOLO11n on the Hexagon NPU (QNN HTP, CPU fallback disabled).
+SegFormer:      segmentation ready on NPU: 512x512, 150 classes
+WalkController: first local frame 1: total=63.63 ms, detection=7.23 ms, segmentation=18.54 ms
+```
+
+That frame is **cold** — it is frame 1, and it carries first-call overhead the
+first phone's 57.96 ms warmed figure does not. Compare like with like before
+reading a regression into the difference.
+
 Two provenance notes, because the artifacts are **not** byte-identical across
 machines and that difference must not be mistaken for drift later:
 
