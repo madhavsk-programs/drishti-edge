@@ -536,6 +536,22 @@ does not establish support for this exact retail phone configuration.
 | 3 | Detection-derived scene summary | Compose a sentence from the detection list. No VLM at all. |
 | 4 | Cut Scene Mode | Nice-to-have tier. |
 
+> **How this resolved.** Neither rung 1 nor rung 2 is what shipped, and the two
+> halves of this ladder separated:
+>
+> - **Scene description** runs a VLM on the phone, but not Qwen3-VL-2B.
+>   Measurement inverted the tier order — the 2B and 4B spend 13 – 16 s in
+>   initialization *per call*, which no quantization fixes — so
+>   **LFM2.5-VL-450M** ships, answering in 1.3 – 1.8 s
+>   ([`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §4.3, §8).
+> - **Target locating** uses **no VLM at all**, and rung 2 was never ported.
+>   Find resolves from landmark memory and the live detector view (§14.1), so
+>   the laptop is not in the path and `/api/v1/vlm/locate` has been deleted
+>   from the client. The detection-derived summary of rung 3 was built, tested
+>   and then deliberately removed: with a real VLM answering, a
+>   template sentence dressed as scene understanding is the kind of claim §3.1
+>   forbids.
+
 > **Do not plan around Qwen3-VL-4B.** The parent project's research already
 > caught its AI Hub page simultaneously listing 8 Elite Gen 5 as supported and
 > stating *"This model is currently not supported on any Mobile chipset."* That
@@ -612,6 +628,14 @@ melt the phone twenty hours later.
 > versus 150.25 ms CPU. In both cases
 > `session.disable_cpu_ep_fallback=1` turns any CPU-assigned node into a session
 > creation failure, so the placement claim does not depend on timing alone.
+
+> **Built.** The panel is in the Walk screen, reached by a **two-finger swipe
+> down**, and shows the backend actually in use, detection and segmentation
+> milliseconds, total frame time, rolling FPS, thermal status and free RAM.
+> Its **"Compare on CPU"** control runs the same detector model on the CPU and
+> back without restarting the session, so the order-of-magnitude claim above
+> can be demonstrated live rather than quoted. The backend it names is read
+> from the detector that actually executed the frame, not from a setting.
 
 ### 7.4 Build traceability
 
@@ -1125,21 +1149,34 @@ spoken target
 3. search the multi-frame full-COCO landmark memory    → hit? go to 5
     │
     ▼
-4. one-shot locator (§6.4): phone VLM if it passed
-   its gate, else the laptop snapshot locator          → box, or refuse
+4. the live full-COCO view of the last walk frame      → box, or refuse
     │
     ▼
 5. hand the normalized box to the on-device tracker    → GUIDING
 ```
+
+> **As built.** Step 4 is the last frame's own detections, not a locator
+> model: something that has just entered view but has not yet earned its
+> second sighting is still findable, and a miss is spoken as a miss. **No VLM
+> and no network are in this path**, which is stronger than the original
+> design allowed for — the laptop snapshot locator described below was never
+> ported, and `/vlm/locate` has been deleted from the client. The consequence
+> is the one stated in step 4's original rationale: targets COCO cannot
+> express (`registration desk`, `exit sign`, `door handle`) are refused aloud
+> rather than guessed at. Scene Mode's VLM can describe such a thing when
+> asked, but it does not lock or guide to it.
 
 Step 3 answers the common case at zero extra inference cost, because the landmark
 memory was populated by the same detector pass the walk loop already ran. A
 `bottle`, `clock`, `book`, `laptop`, `cell phone`, `cup`, or `backpack` should
 never pay VLM latency or memory.
 
-Step 4 is for what COCO cannot express: `registration desk` when no desk or table
-was seen, `exit sign`, `light switch`, `door handle`, or a compositional request
-like `an empty chair`.
+What COCO cannot express — `registration desk` when no desk or table was seen,
+`exit sign`, `light switch`, `door handle`, or a compositional request like
+`an empty chair` — is therefore **refused**, out loud. That is the deliberate
+trade: a locator good enough to find those is also good enough to invent them,
+and guiding someone toward an invented box is the failure this section exists
+to prevent.
 
 > **MUST:** a locator miss is spoken as a miss. "I can't find that" is a correct
 > answer. Guiding toward a guess is not.
@@ -1606,6 +1643,18 @@ reconnection does not replay stale safety instructions.
 
 **Gate:** bounded memory, timeout, cancellation, target handoff, and safety
 preemption all pass; no continuous VLM invocation exists anywhere in the build.
+
+> **Met, by a different route.** Locating never needed a VLM: it resolves from
+> landmark memory and the live detector view, so there is no locator fallback
+> to enable and the laptop rung was not ported. The gate's other clauses are
+> satisfied by Scene Mode, which is the only VLM in the build: it is loaded for
+> exactly one question and freed before the call returns, it declines when free
+> memory is short, and cancellation is real — `llama_set_abort_callback` polls
+> between graph nodes, so a cancel lands mid-prefill and the caller waits for
+> the native call to unwind rather than abandoning it. A device test cancels
+> 500 ms into a call and gets a full answer from the next one. Safety
+> preemption is enforced in the walk loop, which never yields a frame to the
+> VLM. No continuous VLM invocation exists anywhere in the build.
 
 ---
 

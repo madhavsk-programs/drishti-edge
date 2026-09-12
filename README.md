@@ -23,7 +23,8 @@ else.
 | [`BUILD_PLAN.md`](BUILD_PLAN.md) | Execution plan — laptop preparation, agent task cards, device bring-up, demo runbook |
 | [`docs/SAFETY_RULES.md`](docs/SAFETY_RULES.md) | Safety contract |
 | [`docs/DEVICE_BUDGET.md`](docs/DEVICE_BUDGET.md) | Memory budget |
-| [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) | Scene Mode vision-language model options |
+| [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) | Scene Mode vision-language model — selection, tuning, and the measured account of the one bug that blocked it |
+| `scripts/bootstrap_llama.sh` | Fetches the pinned llama.cpp revision Scene Mode builds against |
 | `tools/` | Offline model and vector tooling — golden-vector export, SegFormer float-IO surgery |
 
 ---
@@ -35,15 +36,22 @@ frame; tracking, corridor geometry and a weighted risk engine resolve each frame
 into one of six guidance actions, delivered as speech and spatial audio.
 
 **Find** — session-scoped landmark memory. The user asks for something DRISHTI
-has seen during the walk and is guided to it. Answered from the same detector
-pass the walk loop already ran, so the common case costs no extra inference.
-Nothing is retained after the session ends.
+has seen during the walk and is guided to it, turn by turn. Answered from the
+same detector pass the walk loop already ran, so it costs no extra inference and
+no network call. A target the detector cannot name is refused out loud rather
+than guessed at. Nothing is retained after the session ends.
 
 **Read** — bundled on-device ML Kit OCR for signs, boards and route numbers.
 It is one-shot, works without a connection, and runs on CPU rather than the NPU.
 
-**Ask** — a spoken question about the scene ahead. On-demand only, never in the
-walking loop.
+**Ask** — a spoken question about the scene ahead, answered on the phone by a
+vision-language model in **1.3 – 1.8 s**. On-demand only, never in the walking
+loop: the model is loaded for exactly one question and freed before the answer
+is spoken.
+
+**Diagnostics** — a two-finger swipe down shows which accelerator actually ran
+the last frame, its millisecond cost, rolling FPS, thermal status and free RAM,
+and can run the same detector on the CPU for comparison.
 
 ---
 
@@ -89,7 +97,8 @@ once, unload, and only then return — so no two are ever in memory together.
 | Surface segmentation | SegFormer-B0 ADE20K | Resident, if its gate passes |
 | Tracking, spatial, risk, guidance | Kotlin | Always |
 | OCR | Bundled ML Kit text recognition, CPU | On demand |
-| Scene questions and target locating | Optional VLM, gated | On demand |
+| Target locating and guidance | Kotlin, from landmark memory | Always |
+| Scene questions | LFM2.5-VL-450M, llama.cpp, CPU | On demand |
 
 The walking loop above **runs on the phone today** — detection, segmentation,
 tracking, risk and guidance all on-device, with no backend and no network in
@@ -102,6 +111,14 @@ Explore Mode is also local now: its former JPEG upload/retry path has been
 deleted. A device instrumented test on the 12 GB iQOO reads a generated
 `BUS 42A` sign and extracts route `42A`; walking safety inference remains active
 during the one-shot read.
+
+**Find and Ask are local too.** Target locating resolves from landmark memory
+and the live detector view with no model call of its own, and Scene questions
+run LFM2.5-VL-450M through llama.cpp on the CPU — measured at 1.3 – 1.8 s per
+answer on device, with the model freed before the call returns. The `/vlm/*`,
+`/walk/analyze` and `/explore` endpoints have been **deleted from the client**,
+not disabled: there is no longer a code path from a user gesture to the
+network.
 
 Memory is budgeted for the **12 GB** device variant and has now been exercised
 on both 12 GB and 16 GB iQOO 15 units. Every model choice has a
@@ -153,12 +170,40 @@ npm run typecheck
 
 ### Android client
 
+Scene Mode builds llama.cpp from a pinned revision, which is fetched rather
+than vendored:
+
 ```bash
-cd apps/android
-./gradlew installDebug
+./scripts/bootstrap_llama.sh
 ```
 
-minSdk 31, target/compile 36. Kotlin 2.3, AGP 9, Gradle 9.1.
+```bash
+cd apps/android
+./gradlew :app:testDebugUnitTest :app:assembleDebug
+```
+
+The build works without that step — it logs that Scene Mode is being skipped
+and leaves the rest of the app intact.
+
+To install, prefer `adb install` over `./gradlew installDebug`: Gradle
+uninstalls first, and **that wipes the app's external files directory**, taking
+the staged model files with it.
+
+```bash
+adb install -r -t -d apps/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Models load from that external files directory, so swapping one needs no
+rebuild. Note the `.debug` suffix on debug builds:
+
+```bash
+adb push models/staging/yolo11n_qdq.onnx models/staging/yolo11n_fp32_nchw.onnx models/staging/segformer_float.onnx models/staging/ade20k_config.json /sdcard/Android/data/com.drishti.app.debug/files/
+```
+
+minSdk 31, target/compile 36. Kotlin 2.3, AGP 9, Gradle 9.1. The native build
+is forced to `Release` in every variant — the debug default compiles ggml's C
+kernels at `-O0`, which is slow enough to look like a hang
+([`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §8).
 
 ---
 

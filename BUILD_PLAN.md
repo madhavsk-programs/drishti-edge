@@ -33,7 +33,7 @@ frame at **63.63 ms**. The result is not specific to one handset or one export.
 | Segmentation | SegFormer-B0 ADE20K, every 3rd frame, **guarded NPU rung**. Probe: **11.33 ms NPU vs 150.25 ms CPU** on a public fixture |
 | Guidance | Reaches reasoned verdicts — `CENTRE_BLOCKED_DIRECTION_UNCLEAR` with left walkable and centre blocked, not a generic pause |
 | Network in the walk path | **None.** `api.analyze`, the multipart assembly and the retry loop are deleted, not toggled |
-| Tests | **56 unit tests + 1 on-device OCR test, 0 failures** |
+| Tests | **72 unit tests, 0 failures**, plus on-device tests: 1 OCR, 2 Scene VLM (answer + mid-prefill cancellation) |
 
 ### Cards complete
 
@@ -294,7 +294,7 @@ dashboard, and P0.4 is the first thing cut if anything overruns.
 | E7 | Ask → Lock → Guide (R6) | 2.5 | Soft | Cut Find |
 | E8 | Coordinator and dashboard (R7) | 1.5 | Soft | Cut dashboard |
 | E9 | Soak and the §23.2 functional checks | 2.0 | **HARD** | Never cut |
-| E10 | VLM stretch (R8) — **16 GB only** | 2.0 | Optional | Cut first |
+| E10 | VLM stretch (R8) — **16 GB only** | 2.0 | ~~Optional~~ **DONE** | Shipped: LFM2.5-VL-450M, ungated |
 | E11 | Freeze, rehearse, evidence pack | 3.0 | **HARD** | Never cut |
 | — | Buffer | **6.25** | — | P0.8 returned 2.5 h. It will still be consumed |
 
@@ -312,8 +312,16 @@ dashboard, and P0.4 is the first thing cut if anything overruns.
 | E6 | The product with floor/wall/stairs semantics. |
 | E7 | The product plus Find. |
 | E9 | The product, verified, with a soak curve and a coordinator-off proof. |
+| E10 | The product plus spoken scene answers from a VLM on the phone. |
 
 **E4 is the line that matters.** Everything after it is width, not existence.
+
+> **Where the build actually stands:** everything through E10 is built. E7
+> (Find), E10 (Scene VLM) and the A7 diagnostics panel all landed; the
+> coordinator and dashboard (E8) did not, and by §6.2's own cut order they are
+> the right thing to be missing — the demo's strongest beat is turning the
+> laptop off. What remains is E9 (soak and the §23.2 checks) and E11 (freeze,
+> rehearsal, evidence pack), neither of which may be cut.
 
 ---
 
@@ -437,7 +445,7 @@ on the phone, what the laptop pipeline already does indoors. Point by point:
 | Camera covered → `PAUSE_UNCLEAR` | Risk cascade, pure Kotlin | **Yes.** |
 | Find the bottle I walked past | Landmark memory from the full-COCO view | **Yes,** no extra inference, no VLM. |
 | Read that sign | ML Kit | **Yes,** on-device, not NPU. Say so. |
-| "What's in front of me?" | Detection-derived summary | **Yes,** composed from detections. A real VLM is 16 GB stretch only. |
+| "What's in front of me?" | LFM2.5-VL-450M on the phone | **Yes,** a real VLM, on device, 1.3 – 1.8 s. CPU, not NPU. |
 | Laptop powered off, walk continues | Architecture | **Yes.** Structurally — there is no client left in the loop. |
 
 The one capability the laptop has that the phone will not have is Moondream2's
@@ -925,7 +933,7 @@ reported fallback if guarded session creation fails on another device.
 | Estimated free RAM (**MEASURE 4.1**) | 5.5 – 6.5 GB | 9 – 10 GB |
 | Class B ceiling after the 800 MB margin | ~4.5 GB | ~8 GB |
 | OCR / Explore Mode | ML Kit | ML Kit |
-| **Scene Mode** | Rung 3 only | **Rung 3 by default; LFM2.5-VL-450M (0.33 GB) as the E10 stretch, 1.4 s per answer — see [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md). CPU, not NPU** |
+| **Scene Mode** | Rung 3 only | **LFM2.5-VL-450M (0.33 GB), shipping and ungated, 1.3 – 1.8 s per answer measured in the app — see [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md). CPU, not NPU** |
 | Demo claim | Unchanged | Unchanged, plus "it can also answer a spoken question about the scene, offline" |
 
 > **The safety path is byte-identical on both variants.** Nothing on the
@@ -1890,7 +1898,7 @@ code, preferred corridor, and critical override** — all four, every case.
 
 ---
 
-## A5 — Landmark memory
+## A5 — Landmark memory **[COMPLETE]**
 
 **Slot:** P0.5 · **Gate:** R6 · **Phone:** not needed
 
@@ -1906,6 +1914,13 @@ Fed from `DetectionSet.all` — the full native COCO view. Bounds: TTL 45 s, max
 
 **Acceptance:** unit tests for TTL eviction, the max-entries bound, sighting
 counting, and `labelsMatch` on the synonym and colour-word cases.
+
+> **Landed** as [`LandmarkMemory.kt`](apps/android/app/src/main/java/com/drishti/app/perception/LandmarkMemory.kt),
+> fed from `DetectionSet.all` inside `LocalWalkPipeline.process` before
+> tracking or scoring. Nine unit tests cover the acceptance list plus the
+> bearing gate (the same chair seen from two headings is two landmarks) and
+> `normalizeLabel` keeping `orange`, which is both a colour word and a COCO
+> class.
 
 ---
 
@@ -1993,7 +2008,7 @@ Implement `QnnYoloDetector`:
    One forward pass. Never two.
 
 Then rewire
-[`WalkController.onCameraFrame`](apps/android/app/src/main/java/com/drishti/app/walk/WalkController.kt:294):
+[`WalkController.onCameraFrame`](apps/android/app/src/main/java/com/drishti/app/walk/WalkController.kt:340):
 the frame goes to `OnDeviceDetector`, not to `FrameEncoder` and
 `api.analyze`. Delete the JPEG encode from the walking path.
 
@@ -2040,7 +2055,7 @@ detections with no unbounded queue and no FastAPI call in the walking path.
 
 ---
 
-## A7 — The accelerator scheduler
+## A7 — The accelerator scheduler **[PANEL COMPLETE]**
 
 **Slot:** P0.6 · **Gate:** R2 · **Phone:** not needed to write
 
@@ -2073,6 +2088,21 @@ polled every 5 s, and free `availMem`.
 **Acceptance:** a unit test proving two concurrent `submit` calls serialise and
 that a third submission while one is in flight replaces the pending frame rather
 than queueing.
+
+> **Panel landed; the standalone scheduler did not, and does not need to.**
+> The diagnostics panel is in the Walk screen behind a two-finger swipe down —
+> backend in use, detection / segmentation / total ms, rolling FPS, thermal and
+> free `availMem` (polled every 2 s while it is open), plus a **"Compare on
+> CPU"** control that runs the same YOLO on the CPU and back with no session
+> restart. `LocalWalkPipeline` holds the NPU rung resident and builds the CPU
+> one on first toggle.
+>
+> The serialisation this card asks for is already enforced: `WalkController`
+> submits every frame under `inferenceLock`, and `CaptureLoopGate` holds one
+> frame in flight with latest-wins replacement. Extracting that into a separate
+> scheduler class would move working code without changing behaviour, so it is
+> deliberately not done. The unit test above remains unwritten and is the only
+> open piece of this card.
 
 ---
 
@@ -2166,7 +2196,7 @@ coordinator changes nothing about a running phone build.**
 
 ---
 
-## A10 — Ask → Lock → Guide
+## A10 — Ask → Lock → Guide **[COMPLETE]**
 
 **Slot:** E7 · **Gate:** R6 · **Phone:** to verify
 
@@ -2176,7 +2206,7 @@ order per `ARCHITECTURE.md` §14.1 — landmark memory first, live detections
 second, **no VLM in the path**.
 
 `parseLocateTarget` already exists in
-[`WalkController.kt:80`](apps/android/app/src/main/java/com/drishti/app/walk/WalkController.kt:80)
+[`WalkController.kt:89`](apps/android/app/src/main/java/com/drishti/app/walk/WalkController.kt:89)
 and is already unit-tested. Keep it.
 
 > **MUST** suppress target speech and target spatial audio whenever the risk
@@ -2185,6 +2215,17 @@ and is already unit-tested. Keep it.
 
 **Acceptance:** target lock from memory, tracking, loss, rescan, and safety
 preemption all pass with no VLM invoked.
+
+> **Landed** as [`TargetGuidance.kt`](apps/android/app/src/main/java/com/drishti/app/scene/TargetGuidance.kt)
+> and a rewritten [`TargetLocator.kt`](apps/android/app/src/main/java/com/drishti/app/scene/TargetLocator.kt).
+> Seven unit tests cover the acceptance list; the safety-preemption one also
+> checks that the cue resumes on the *current* step rather than replaying a
+> backlog. The guidance engine returns an empty `speech` and
+> `GuidanceStrings.targetLine` chooses the words, so cues follow the spoken
+> language setting like every other line (en / hi / ta).
+>
+> The `/vlm/locate` call is **deleted**, not stubbed, along with
+> `/walk/analyze`, `/explore`, `/vlm/query` and their DTOs.
 
 ---
 
@@ -2410,15 +2451,17 @@ Run all eighteen from `ARCHITECTURE.md` §23.2 at E9 and record pass/fail.
 - [ ] Office Kit mirroring on for the audience, and you have already recorded
       your quoted numbers with it off
 - [ ] Coordinator running on the laptop, dashboard open
-- [ ] Diagnostics panel reachable in one gesture
+- [ ] Diagnostics panel opens on a two-finger swipe down, and you have
+      practised the swipe — it is the first and last thing the judges see
 - [ ] A printed sign for Explore Mode within reach
 - [ ] The corridor walked once already, this session
 
 ## 5.2 The sequence
 
-1. **Open on the diagnostics panel.** Backend: NPU. Inference: single-digit
-   milliseconds. Thermal: nominal. This is the technical claim, stated before any
-   narrative.
+1. **Open on the diagnostics panel** — two-finger swipe down. Backend: NPU.
+   Detection: single-digit milliseconds. Thermal: nominal. This is the technical
+   claim, stated before any narrative, and the numbers are live rather than
+   recited.
 2. **Walk the clear corridor.** `CLEAR` / `PATH_CLEAR`, floor polygon on the
    overlay, spatial audio centred.
 3. **Put an obstacle in the centre, left side open.** `MOVE_LEFT` /
@@ -2432,11 +2475,15 @@ Run all eighteen from `ARCHITECTURE.md` §23.2 at E9 and record pass/fail.
    aeroplane mode.** Nothing happens either time. Keep walking. The dashboard
    dies; the guidance does not. *This is the whole argument*, and the radio-off
    half is the version a non-technical judge feels immediately (§6.2 proof 4).
-7. **Find.** Ask for something walked past thirty seconds ago. It locks from
-   landmark memory — **no extra inference, no VLM**.
+7. **Find.** Long-press, then ask for something walked past thirty seconds ago
+   ("find the bottle"). It locks from landmark memory and guides turn by turn —
+   **no extra inference, no VLM, no network**. Ask for something it has never
+   seen and it says so; that refusal is worth demonstrating deliberately.
 8. **Explore.** Read the sign, with its confidence qualification spoken.
-9. **Back to diagnostics.** Toggle the backend to CPU. Watch the millisecond
-   count collapse. Toggle back.
+9. **Back to diagnostics.** Tap **"Compare on CPU"**. The same YOLO model, the
+   same frames, on the CPU — watch the detection milliseconds jump by roughly an
+   order of magnitude. Tap again to return to the NPU. The session never
+   restarts, so there is nothing to accuse the demo of swapping.
 10. **If the old project is set up on its RTX 4060 machine, run it alongside.**
     Same corridor, same obstacle — one architecture sending every frame over
     Wi-Fi to a laptop GPU, one doing it all on the phone. The comparison argues
@@ -2449,6 +2496,8 @@ Run all eighteen from `ARCHITECTURE.md` §23.2 at E9 and record pass/fail.
 |---|---|
 | "Is it really the NPU?" | Session creation runs with `disable_cpu_ep_fallback=1`, so a CPU fallback is a thrown exception, not a silent slowdown. Plus the logcat backend line and the CPU-EP comparison. |
 | "Is the OCR on the NPU?" | No. ML Kit, on-device, CPU. It keeps the feature alive and it is not part of the NPU claim. |
+| "Is the scene description on the NPU?" | No. LFM2.5-VL-450M runs on the CPU through llama.cpp. It is on the phone and offline, which is the claim; it is not on the NPU, and we do not say it is. |
+| "Does Find use the language model?" | No. It resolves from the detector's own output — landmark memory first, the live frame second. If the detector cannot name it, Find refuses out loud instead of guessing. |
 | "Can it tell me it's safe to cross?" | No, and it never will. It reports what it detects. It never certifies. That is a design rule, not a limitation. |
 | "How far away is that?" | It does not say. A single camera cannot measure distance. Relative bands only. |
 | "Does it detect doors?" | No. `door` is not a COCO class. Segmentation may mark a door-shaped non-walkable surface; that is a surface, not a door detection. |
