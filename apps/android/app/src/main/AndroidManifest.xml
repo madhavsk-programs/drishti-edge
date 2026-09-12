@@ -34,6 +34,14 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.DRISHTI">
 
+        <!-- QNN's HTP backend reaches the DSP over FastRPC through these vendor
+             libraries. Android's linker namespace sandboxing blocks dlopen of
+             vendor libraries an app has not declared, and the failure surfaces
+             as a generic QNN device error rather than as a link error. -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+        <uses-native-library android:name="libadsprpc.so" android:required="false" />
+        <uses-native-library android:name="libsdsprpc.so" android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

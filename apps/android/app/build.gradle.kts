@@ -14,6 +14,8 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // The ONNX Runtime QNN AAR and the QAIRT backend libraries are arm64 only.
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildTypes {
@@ -39,6 +41,25 @@ android {
     packaging {
       resources {
         excludes += "/META-INF/{AL2.0,LGPL2.1}"
+      }
+      // QNN's native code dlopen()s "libQnnHtp.so" by bare name, which only
+      // resolves if the .so is a real file under nativeLibraryDir. AGP's
+      // default page-aligned-in-APK packaging never extracts it there, and the
+      // failure is a silent CPU fallback rather than a link error.
+      jniLibs {
+        useLegacyPackaging = true
+        // The ORT QNN AAR ships a DSP Skel for every Hexagon generation, ~12 MB
+        // each. The target is HTP v81 (Snapdragon 8 Elite Gen 5 / 8 Gen 5), so
+        // the rest are dead weight in the APK and in install time. Widen this
+        // list if the build ever has to run on older silicon.
+        excludes += setOf(
+          "**/libQnnHtpV68Skel.so",
+          "**/libQnnHtpV69Skel.so",
+          "**/libQnnHtpV73Skel.so",
+          "**/libQnnHtpV75Skel.so",
+          "**/libQnnHtpV79Skel.so",
+          "**/libQnnDspV66Skel.so",
+        )
       }
     }
 }
@@ -81,6 +102,12 @@ dependencies {
   implementation(libs.okhttp.logging)
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.kotlinx.coroutines.android)
+
+  // On-device inference. Pinned: the Qualcomm SegFormer assets declare ONNX
+  // Runtime 1.27.1, and a newer ORT loads an older EPContext model while the
+  // reverse is not true. The AAR ships no QNN backend libraries - see
+  // BUILD_PLAN.md §3.4 for staging them into jniLibs/arm64-v8a/.
+  implementation("com.microsoft.onnxruntime:onnxruntime-android-qnn:1.29.0")
 
   // Preferences
   implementation(libs.androidx.datastore.preferences)
