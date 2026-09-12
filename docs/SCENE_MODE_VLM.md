@@ -161,6 +161,60 @@ llama.cpp with multimodal support.
 > the event window. A first NDK build at T+22 h is how the last eight hours
 > disappear.
 
+### 4.1 `GGML_LLAMAFILE=ON`. The earlier `OFF` was wrong, and it was expensive
+
+This document and `BUILD_PLAN.md` both used to prescribe `GGML_LLAMAFILE=OFF`
+for the arm64 build. That flag was never measured; it was inherited as a
+"minimal build" instinct. **It cripples the exact code path a vision model
+depends on.**
+
+On the 16 GB I2501, LFM2.5-VL-450M Q4_K_M, 8 threads, cooled, `llama-bench`:
+
+| Build | `pp128` (prompt) | `tg32` (decode) |
+|---|---:|---:|
+| `GGML_LLAMAFILE=OFF` | **18.20 ± 0.19 t/s** | 100.13 ± 9.53 t/s |
+| `GGML_LLAMAFILE=ON` | **268.35 ± 65.64 t/s** | 105.93 ± 3.41 t/s |
+
+**14.7× on prompt processing; decode unchanged within noise.** The `OFF` build
+was the anomaly, not the `ON` one — prompt processing is normally *faster* than
+decode, and seeing `pp` at a fifth of `tg` is the signature of missing batch
+matmul kernels. `GGML_LLAMAFILE` supplies those (tinyBLAS); without them every
+batched matmul falls back to the scalar path.
+
+This matters far more for a VLM than for a text model. **Every image token is
+prompt, not decode.** A 320 px image is a few hundred vision tokens, so the
+`OFF` build was paying roughly fifteen times over for the one thing Scene Mode
+does most. End-to-end on the 450M at 320 px this alone moved a full answer from
+**4.7 s to 1.8 s**, and it is what made the larger tiers worth measuring at all.
+
+> **Keep `GGML_CPU_KLEIDIAI=ON` as well** — the two are complementary, not
+> alternatives. Note the build log line `kleidiai: no kernel for tensor type
+> q6_K`: KleidiAI accelerates `Q4_0` and `Q8_0`, and a `Q4_K_M` file contains
+> `q6_K` tensors it will skip. That is a known, unquantified lead, not a
+> conclusion — do not restate it as a reason to change quantization without
+> measuring both.
+
+### 4.2 Bound the input resolution — it dominates everything else
+
+The vision encoder cost is superlinear in pixels and has a hard cliff.
+Qwen3-VL-2B, same image, same build, encode time only:
+
+| Long edge | Encode | Reads "Cero Emisiones" on the bus? |
+|---|---:|---|
+| 512 px | 15,250 ms | yes |
+| 384 px | 7,461 ms | yes |
+| **320 px** | **1,603 ms** | **yes** |
+| 256 px | 1,110 ms | **no** — answered "e-transportes" |
+
+**320 px is the operating point**: roughly ten times cheaper than 512 px with no
+loss of text legibility, and one step below it the model starts inventing text.
+That last row is why resolution must be chosen by a text-reading check and not
+by latency alone — a scene caption degrades gracefully at 256 px, but reading a
+bus number or a door sign does not, and Scene Mode is supposed to do both (§5).
+
+`ARCHITECTURE.md` §6.4 already required "bounded input resolution" as a gate.
+This is the measured value for that bound: **long edge 320 px**.
+
 ---
 
 ## 5. The Class B contract — non-negotiable

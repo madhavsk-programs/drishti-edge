@@ -75,7 +75,9 @@ Implementation order:
 1. Install/verify NDK 29 and CMake. Pin an audited llama.cpp revision; do not use
    an unvetted community AAR.
 2. Build arm64-v8a llama.cpp + `libmtmd` with `GGML_NATIVE=OFF`,
-   `GGML_CPU_KLEIDIAI=ON`, `GGML_OPENMP=OFF`, `GGML_LLAMAFILE=OFF`, and
+   `GGML_CPU_KLEIDIAI=ON`, `GGML_OPENMP=OFF`, **`GGML_LLAMAFILE=ON`** (this
+   line originally said `OFF`; see the measured correction in
+   [`docs/SCENE_MODE_VLM.md`](docs/SCENE_MODE_VLM.md) §4.1), and
    `LLAMA_OPENSSL=OFF`. Add the smallest JNI boundary needed for one image plus
    one prompt.
 3. Implement the Class-B lifecycle from `docs/SCENE_MODE_VLM.md`: check free
