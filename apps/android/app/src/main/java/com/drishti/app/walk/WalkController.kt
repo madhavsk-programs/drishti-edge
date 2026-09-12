@@ -6,7 +6,12 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.lifecycle.LifecycleOwner
 import com.drishti.app.R
+import com.drishti.app.config.PipelineSettings
 import com.drishti.app.explore.ExploreController
+import com.drishti.app.inference.InferenceBackend
+import com.drishti.app.inference.OrientedFrame
+import com.drishti.app.inference.OrtYoloDetector
+import com.drishti.app.inference.YuvToRgb
 import com.drishti.app.feedback.AudioFocusManager
 import com.drishti.app.feedback.GuidanceStrings
 import com.drishti.app.feedback.GyroSteering
@@ -39,6 +44,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.util.UUID
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.MediaType.Companion.toMediaType
@@ -147,6 +153,19 @@ class WalkController(
     private val frameCounter = AtomicInteger(0)
     private val startStopLock = Mutex()
 
+    /**
+     * The walking loop runs entirely on this device (BUILD_PLAN.md task A6).
+     * There is no path from here to the network in any state, by any toggle —
+     * reintroducing one under failure conditions restores exactly the coupling
+     * this migration exists to remove, at the moment the user can least
+     * tolerate it (ARCHITECTURE.md §19.3).
+     */
+    private val yuv = YuvToRgb()
+    private var localPipeline: LocalWalkPipeline? = null
+
+    /** Serialises frames into the tracker, which carries per-session history. */
+    private val inferenceLock = Mutex()
+
     private val jpegType = "image/jpeg".toMediaType()
     private val textType = "text/plain".toMediaType()
 
@@ -179,30 +198,18 @@ class WalkController(
             configureFeedback(settings)
             speech.ensureAudible()
 
-            val started = apiCall {
-                api.startSession(
-                    StartWalkSessionRequest(
-                        deviceAlias = "drishti-android",
-                        settings = WalkSettings(
-                            speechRate = settings.speechRate.toDouble(),
-                            preferredLanguage = settings.language.tag,
-                            hapticsEnabled = settings.hapticsEnabled,
-                            riskSensitivity = settings.riskSensitivity.toDouble(),
-                        ),
-                    ),
-                )
+            // Session identity and pacing are now local decisions. There is no
+            // negotiation because there is no peer to negotiate with.
+            sessionId = "local-${UUID.randomUUID()}"
+
+            val detector = OrtYoloDetector.create(app, PipelineSettings())
+            if (detector.backend == InferenceBackend.UNAVAILABLE) {
+                Log.e(TAG, "no detector: ${detector.detail}")
+                return@withLock fail(detector.detail)
             }
-            when (started) {
-                is ApiResult.Ok -> {
-                    sessionId = started.value.sessionId
-                    maxImageWidth = started.value.maxImageWidth
-                    maxImageBytes = started.value.maxImageBytes
-                    maxResultAgeMs = started.value.maxResultAgeMs
-                    recommendedFps = started.value.recommendedCaptureFps
-                }
-                is ApiResult.Failure -> return@withLock fail(strings.string(R.string.models_not_ready))
-                is ApiResult.Transport -> return@withLock fail(strings.string(R.string.backend_unreachable))
-            }
+            Log.i(TAG, "detector ready on ${detector.backend}: ${detector.detail}")
+            localPipeline?.close()
+            localPipeline = LocalWalkPipeline(detector, PipelineSettings())
 
             freshness.reset()
             gate.reset()
@@ -243,11 +250,11 @@ class WalkController(
             gyro.stop()
             focus.release()
             haptic.cancel()
-            val id = sessionId
             sessionId = null
+            localPipeline?.close()
+            localPipeline = null
             _state.value = WalkUiState(mode = WalkMode.STOPPED)
             speech.say(strings.string(R.string.walk_stopped), flush = true)
-            if (id != null) apiCall { api.endSession(id) }
         }
     }
 
@@ -300,63 +307,59 @@ class WalkController(
         val now = System.currentTimeMillis()
         if (now < nextAllowedAtMs || !gate.tryBegin()) { image.close(); return }
 
-        val encoded = runCatching {
-            FrameEncoder.encode(image, targetMaxWidth = maxImageWidth, maxBytes = maxImageBytes)
-        }.getOrNull()
+        // Convert on the camera thread and release the proxy immediately;
+        // KEEP_ONLY_LATEST stalls the whole stream while a proxy is held.
+        val frame = runCatching {
+            val rgb = yuv.convert(image)
+            OrientedFrame(
+                rgb = rgb,
+                width = yuv.width,
+                height = yuv.height,
+                frameId = frameCounter.incrementAndGet(),
+                capturedAtMillis = now,
+            )
+        }.getOrElse {
+            Log.e(TAG, "YUV conversion failed", it)
+            null
+        }
         image.close()
-        if (encoded == null) { gate.finishRequestFailure(); return }
+        if (frame == null) { gate.finishRequestFailure(); return }
 
-        val frameId = frameCounter.incrementAndGet()
-        val capturedAt = Instant.now()
-        scope.launch { analyze(encoded.jpeg, frameId, capturedAt) }
+        scope.launch { analyze(frame) }
     }
 
-    private suspend fun analyze(jpeg: ByteArray, frameId: Int, capturedAt: Instant) {
-        val id = sessionId ?: run { gate.finishRequestFailure(); return }
-        val framePart = MultipartBody.Part.createFormData("frame", "frame-$frameId.jpg", jpeg.toRequestBody(jpegType))
-        val heading = gyro.currentHeadingDegrees()
-        val result = apiCall {
-            api.analyze(
-                frame = framePart,
-                sessionId = id.toRequestBody(textType),
-                frameId = frameId.toString().toRequestBody(textType),
-                capturedAt = capturedAt.toString().toRequestBody(textType),
-                rotationDegrees = "0".toRequestBody(textType),
-                headingDegrees = heading?.let { "%.1f".format(it).toRequestBody(textType) },
-            )
+    /**
+     * [frame] borrows [YuvToRgb]'s reused buffer. That is safe because
+     * [CaptureLoopGate] admits exactly one frame at a time: the gate is held
+     * from `tryBegin` in [onCameraFrame] until a `finish*` call below, so no
+     * second conversion can overwrite the buffer while this runs.
+     */
+    private suspend fun analyze(frame: OrientedFrame) {
+        val id = sessionId
+        val pipeline = localPipeline
+        if (id == null || pipeline == null) { gate.finishRequestFailure(); return }
+
+        val response = inferenceLock.withLock {
+            runCatching {
+                pipeline.process(
+                    frame = frame,
+                    sessionId = id,
+                    riskSensitivity = settings.riskSensitivity.toDouble(),
+                    hapticsEnabled = settings.hapticsEnabled,
+                )
+            }
         }
-        when (result) {
-            is ApiResult.Ok -> {
-                if (gate.finishSuccess()) {
-                    _state.value = _state.value.copy(connectionLost = false)
-                    if (_state.value.mode == WalkMode.WALKING) {
-                        speech.say(strings.string(R.string.conn_restored), flush = false)
-                    }
-                }
-                pace(result.value.timings.totalMs, result.value.frameAgeMs)
-                applyResponse(result.value)
-            }
-            is ApiResult.Failure -> {
-                when (result.code) {
-                    "FRAME_SUPERSEDED", "FRAME_TOO_OLD", "FRAME_ID_NOT_MONOTONIC" -> {
-                        gate.finishSuccess() // benign; not a connection problem
-                        pace(null, null)
-                    }
-                    "MODEL_NOT_READY", "SESSION_NOT_FOUND", "SESSION_ENDED" -> {
-                        gate.finishRequestFailure()
-                        _state.value = _state.value.copy(message = strings.string(R.string.models_not_ready))
-                        pace(null, null)
-                    }
-                    else -> { gate.finishRequestFailure(); pace(null, null) }
-                }
-            }
-            is ApiResult.Transport -> {
-                if (gate.finishConnectionFailure()) {
-                    _state.value = _state.value.copy(connectionLost = true)
-                    speech.say(strings.string(R.string.conn_lost), flush = true)
-                }
-                pace(null, null)
-            }
+        response.onSuccess {
+            gate.finishSuccess()
+            pace(it.timings.totalMs, it.frameAgeMs)
+            applyResponse(it)
+        }.onFailure {
+            // A failed inference is a real failure, not a quiet empty frame.
+            // Returning no detections would read downstream as "path clear".
+            Log.e(TAG, "on-device inference failed for frame ${frame.frameId}", it)
+            gate.finishRequestFailure()
+            _state.value = _state.value.copy(message = strings.string(R.string.models_not_ready))
+            pace(null, null)
         }
     }
 
