@@ -692,7 +692,7 @@ def select_action(analysis: Analysis, s: Settings):
 
 
 class Tracker:
-    def __init__(self, iou_threshold=0.20, centre_distance=0.12, max_age=3, coast_frames=0,
+    def __init__(self, iou_threshold=0.20, centre_distance=0.12, max_age=10, coast_frames=0,
                  cross_label_iou=0.60):
         self.iou_threshold = iou_threshold
         self.centre_distance = centre_distance

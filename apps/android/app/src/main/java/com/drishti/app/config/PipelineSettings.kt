@@ -34,7 +34,41 @@ data class PipelineSettings(
     // Tracking
     val trackIouThreshold: Double = 0.20,
     val trackCentreDistanceThreshold: Double = 0.12,
-    val trackMaxAgeFrames: Int = 3,
+    /**
+     * How long a track remembers an object the detector has stopped producing.
+     *
+     * Three frames is 150 ms at the measured cadence, and that is far too short
+     * for what actually happens at close range. Built four synthetic approaches
+     * out of captured frames — progressively tighter crops on a chair, so its
+     * apparent size grows as it would if you kept walking — and in every one the
+     * detector FADES OUT rather than being wrong: 0.93, 0.90, 0.71, 0.46, then
+     * nothing at all for the rest of the approach. The wrong name, when it comes,
+     * comes out of that silence: `toilet` at 0.43 and `bowl` at 0.39 on two of
+     * the four, several frames after the chair was last seen.
+     *
+     * By then a three-frame memory has expired, so there is no history left for
+     * the name to be voted against, and the only thing standing between the user
+     * and "a toilet ahead" is the confidence gate. Remembering an object for
+     * half a second instead gives the vote something to work with.
+     *
+     * This costs nothing on its own: with [trackCoastFrames] at 0 an unmatched
+     * track produces NO output, so a longer memory holds an identity and a name,
+     * never a phantom obstacle.
+     */
+    val trackMaxAgeFrames: Int = 10,
+    /**
+     * Gap beyond which motion is reported as unknown rather than computed.
+     *
+     * Approach rate and the motion vector are PER-FRAME quantities derived from
+     * two observations. Straddling a gap of ten frames and calling the result a
+     * rate overstates it by an order of magnitude, and `APPROACHING_VEHICLE_CENTRE`
+     * — the one branch that bypasses the alert cooldown — reads exactly that
+     * field. Two observations half a second apart are not a rate.
+     *
+     * At the Python's `track_max_age_frames` of 3 no gap can exceed this, so the
+     * `tracking.json` vectors never reach it.
+     */
+    val trackMotionMaxGapFrames: Int = 3,
     /**
      * Frames an unmatched track keeps reporting its last box, with a decaying
      * confidence. See [com.drishti.app.perception.SessionTracker].

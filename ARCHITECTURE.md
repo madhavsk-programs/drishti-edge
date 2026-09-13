@@ -1249,6 +1249,44 @@ a name supported below 0.50 — between the 0.35 gate that decides an obstacle
 exists and the 0.64-0.80 the detector produces when it actually recognises
 something. Below that the verdict is unnamed, not wrong.
 
+### 12.2.7.1 The detector does not get the name wrong; it goes quiet
+
+The live 300-frame capture never reproduced the suitcase misread — 529 chair
+detections, none of them a suitcase — because the walk never got close enough. So
+the missing part of the approach was built out of real pixels: progressively
+tighter 3:4 crops centred on a chair the detector is sure about, each resized back
+to 960x1280, so its apparent size grows as it would if you kept walking. Same
+sensor, same optics, same chair, losing context and gaining scale.
+
+Four approaches, and all four say the same thing. The detector does not become
+confidently wrong as an object fills the lens; it **fades out**:
+
+    chair 0.93 -> 0.90 -> 0.71 -> 0.46 -> nothing -> nothing -> nothing
+
+The wrong name arrives out of that silence, several frames after the object was
+last seen: `toilet` at 0.43 on one approach, `bowl` at 0.39 on another. At a
+three-frame memory the chair's track is long gone by then, so there is no history
+for the vote to work with — which is why §12.2.7's voting, on its own, never
+fired on any of the four.
+
+`track_max_age_frames` is therefore 10 rather than 3: half a second instead of
+150 ms. It costs nothing on its own, because with `track_coast_frames` at 0 an
+unmatched track produces NO output — a longer memory holds an identity and a
+name, never a phantom obstacle. Over the 300-frame capture, maxAge 3, 10 and 20
+give byte-identical decisions on every frame. On the approaches it turns the
+`bowl` back into a `chair` (IoU 0.775 against where the chair had been). The
+`toilet` case stays wrong at IoU 0.541, under the 0.60 cross-name gate, and is
+caught by the other defence instead: at 0.43 it is under the naming gate, so it
+is never spoken. Across all four approaches the app never says a wrong name.
+
+One correctness guard comes with the longer memory. Approach rate and the motion
+vector are PER-FRAME quantities derived from two observations, and straddling a
+ten-frame gap overstates them by an order of magnitude —
+`APPROACHING_VEHICLE_CENTRE`, the one branch that bypasses the alert cooldown,
+reads exactly that field. Beyond `track_motion_max_gap_frames` = 3 motion is
+reported as unknown, the same rule coasting already followed. At the Python's
+max age of 3 no gap can reach it, so the vectors never see it.
+
 ### 12.2.8 Containment collapses exactly when an obstacle gets dangerous
 
 Found by auditing a 300-frame live capture: an office chair two metres dead

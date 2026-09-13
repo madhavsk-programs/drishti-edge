@@ -131,6 +131,8 @@ class SessionTracker(
      * first, so an overlapping person and chair still end up as two tracks.
      */
     private val crossLabelIouThreshold: Double? = 0.60,
+    /** See [com.drishti.app.config.PipelineSettings.trackMotionMaxGapFrames]. */
+    private val motionMaxGapFrames: Int = 3,
 ) {
     private val tracks = LinkedHashMap<Int, Track>()
     private var nextTrackId = 1
@@ -197,16 +199,28 @@ class SessionTracker(
             val areaChange = (currentArea - previousArea) / max(previousArea, 1e-6)
             val previousCentre = centre(previous)
             val currentCentre = centre(detection)
+            // Motion is a PER-FRAME rate. Across a long gap the two observations
+            // are simply too far apart to divide, so it is unknown rather than
+            // overstated — the same rule coasting follows below.
+            val measurable = frameId - track.lastSeenFrameId <= motionMaxGapFrames
             track.vote(detection)
             val reported = track.rename(detection)
             output.add(
                 TrackedDetection(
                     detection = reported,
                     trackId = track.trackId,
-                    approachRate = min(1.0, max(0.0, areaChange)),
-                    areaChange = areaChange,
-                    motionDx = currentCentre.first - previousCentre.first,
-                    motionDy = currentCentre.second - previousCentre.second,
+                    approachRate = if (measurable) min(1.0, max(0.0, areaChange)) else null,
+                    areaChange = if (measurable) areaChange else null,
+                    motionDx = if (measurable) {
+                        currentCentre.first - previousCentre.first
+                    } else {
+                        null
+                    },
+                    motionDy = if (measurable) {
+                        currentCentre.second - previousCentre.second
+                    } else {
+                        null
+                    },
                     labelConfidence = track.labelConfidence(),
                 )
             )

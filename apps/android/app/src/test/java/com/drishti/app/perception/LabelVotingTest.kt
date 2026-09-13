@@ -2,6 +2,8 @@ package com.drishti.app.perception
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -21,12 +23,14 @@ import org.junit.Test
  */
 class LabelVotingTest {
 
-    private fun tracker(crossLabelIou: Double? = 0.60) = SessionTracker(
-        iouThreshold = 0.20,
-        centreDistanceThreshold = 0.12,
-        maxAgeFrames = 3,
-        crossLabelIouThreshold = crossLabelIou,
-    )
+    private fun tracker(crossLabelIou: Double? = 0.60, maxAgeFrames: Int = 10) =
+        SessionTracker(
+            iouThreshold = 0.20,
+            centreDistanceThreshold = 0.12,
+            maxAgeFrames = maxAgeFrames,
+            crossLabelIouThreshold = crossLabelIou,
+            motionMaxGapFrames = 3,
+        )
 
     private fun box(label: String, confidence: Double, shift: Double = 0.0) =
         DetectionCandidate(label, confidence, 0.30 + shift, 0.30, 0.70 + shift, 0.95)
@@ -107,6 +111,63 @@ class LabelVotingTest {
         val renamed = tracker.update(listOf(box("suitcase", 0.41)), 2, 100L)
         assertEquals("suitcase", renamed[0].detection.label)
         assertEquals(2, renamed[0].trackId)
+    }
+
+    @Test
+    fun theNameSurvivesTheDetectorGoingQuiet() {
+        // Measured, not imagined. Four approaches built from captured frames by
+        // cropping tighter and tighter on a chair: the detector does not get the
+        // name wrong so much as FADE OUT — 0.93, 0.90, 0.71, 0.46, then nothing
+        // — and the wrong name arrives out of that silence. On one of the four
+        // the chair came back as `bowl` at 0.39 after five empty frames, at an
+        // IoU of 0.775 with where the chair had been.
+        val tracker = tracker()
+        tracker.update(listOf(box("chair", 0.90)), 1, 0L)
+        tracker.update(listOf(box("chair", 0.71)), 2, 50L)
+        for (frame in 3..7) tracker.update(emptyList(), frame, frame * 50L)
+        val back = tracker.update(listOf(box("bowl", 0.39)), 8, 400L)
+
+        assertEquals("chair", back[0].detection.label)
+        assertEquals(1, back[0].trackId)
+    }
+
+    @Test
+    fun aThreeFrameMemoryWouldHaveLostIt() {
+        // The same sequence against the Python's memory: the track is long gone,
+        // there is no history to vote with, and only the naming confidence gate
+        // stands between the user and "a bowl ahead".
+        val tracker = tracker(maxAgeFrames = 3)
+        tracker.update(listOf(box("chair", 0.90)), 1, 0L)
+        for (frame in 2..7) tracker.update(emptyList(), frame, frame * 50L)
+        val back = tracker.update(listOf(box("bowl", 0.39)), 8, 400L)
+        assertEquals("bowl", back[0].detection.label)
+    }
+
+    @Test
+    fun motionIsUnknownAcrossAGapRatherThanOverstated() {
+        // Approach rate is a PER-FRAME quantity and APPROACHING_VEHICLE_CENTRE —
+        // the one branch that bypasses the alert cooldown — reads it. Two
+        // observations half a second apart are not a rate.
+        val tracker = tracker()
+        tracker.update(listOf(box("car", 0.90)), 1, 0L)
+        for (frame in 2..7) tracker.update(emptyList(), frame, frame * 50L)
+        val grown = DetectionCandidate("car", 0.90, 0.10, 0.10, 0.95, 0.99)
+        val back = tracker.update(listOf(grown), 8, 400L)
+
+        assertEquals(1, back[0].trackId)
+        assertNull("a rate measured across seven frames is not a rate", back[0].approachRate)
+        assertNull(back[0].areaChange)
+        assertNull(back[0].motionDx)
+    }
+
+    @Test
+    fun motionIsStillMeasuredAcrossAShortGap() {
+        val tracker = tracker()
+        tracker.update(listOf(box("car", 0.90)), 1, 0L)
+        tracker.update(emptyList(), 2, 50L)
+        val grown = DetectionCandidate("car", 0.90, 0.28, 0.28, 0.72, 0.97)
+        val back = tracker.update(listOf(grown), 3, 100L)
+        assertNotNull(back[0].approachRate)
     }
 
     @Test
